@@ -5,6 +5,39 @@ import { NextResponse } from "next/server";
 
 type OAuthProvider = "google" | "notion";
 
+function buildProviderErrorRedirect(
+  origin: string,
+  intent: string | null,
+  next: string,
+  searchParams: URLSearchParams
+) {
+  const providerTarget =
+    intent === "connect-google"
+      ? "/dashboard/google"
+      : intent === "connect-notion"
+        ? "/dashboard/notion"
+        : next;
+
+  const redirectUrl = new URL(providerTarget, origin);
+  const error = searchParams.get("error");
+  const errorCode = searchParams.get("error_code");
+  const errorDescription = searchParams.get("error_description");
+
+  if (error) {
+    redirectUrl.searchParams.set("oauth_error", error);
+  }
+
+  if (errorCode) {
+    redirectUrl.searchParams.set("oauth_error_code", errorCode);
+  }
+
+  if (errorDescription) {
+    redirectUrl.searchParams.set("oauth_error_description", errorDescription);
+  }
+
+  return redirectUrl;
+}
+
 function getIdentityDetails(user: {
   email?: string | null;
   identities?: Array<{
@@ -82,6 +115,11 @@ export async function GET(request: Request) {
   const code = searchParams.get("code");
   const next = sanitizeNextPath(searchParams.get("next"), "/app-entry");
   const intent = searchParams.get("intent");
+  const providerError = searchParams.get("error");
+
+  if (providerError) {
+    return NextResponse.redirect(buildProviderErrorRedirect(origin, intent, next, searchParams));
+  }
 
   if (code) {
     const supabase = await createClient();
@@ -123,5 +161,5 @@ export async function GET(request: Request) {
   }
 
   // If no code or error, redirect to login with error message
-  return NextResponse.redirect(`${new URL(request.url).origin}/login?error=auth_callback_error`);
+  return NextResponse.redirect(`${origin}/login?error=auth_callback_error`);
 }

@@ -2,7 +2,14 @@ import "server-only";
 
 import type { User } from "@supabase/supabase-js";
 
+import { isNotionBrokerConfigured } from "./notion-workspace";
 import type { createClient as createServerClient } from "@/lib/supabase-server";
+import {
+  getGoogleOAuthRefreshSupport,
+  getTranscriptStorageMode,
+  isTranscriptDownloadEnabled,
+} from "@/lib/env";
+import { getTranscriptAvailability } from "@/lib/workspace-runtime";
 
 import type { ProfileRecord } from "./billing";
 import { createAdminClient } from "./supabase-admin";
@@ -183,10 +190,11 @@ export function getWorkspaceProviderStatus() {
   return {
     deepgramConfigured: Boolean(process.env.DEEPGRAM_API_KEY),
     openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
-    // Google and Notion are expected to be brokered through Supabase Edge Functions
-    // instead of direct client credentials inside this Next.js app.
     googleConfigured: supabaseConfigured,
-    notionConfigured: supabaseConfigured,
+    googleRefreshConfigured: getGoogleOAuthRefreshSupport(),
+    notionConfigured: isNotionBrokerConfigured(),
+    transcriptDownloadsEnabled: isTranscriptDownloadEnabled(),
+    transcriptStorageMode: getTranscriptStorageMode(),
   };
 }
 
@@ -275,6 +283,7 @@ export async function loadMeetingDetail(
       exports: (exports as MeetingExportRecord[] | null) ?? [],
       google,
       notion,
+      transcriptAvailability: getTranscriptAvailability(meetingId),
       providerStatus: getWorkspaceProviderStatus(),
     };
   } catch (error) {

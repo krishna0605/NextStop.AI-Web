@@ -4,8 +4,9 @@ import { internalServerErrorResponse } from "@/lib/http";
 import { createClient } from "@/lib/supabase-server";
 import {
   createGoogleMeetEvent,
-  getGoogleAccessToken,
+  GoogleIntegrationError,
   upsertGoogleMeetingRecord,
+  withGoogleAccessToken,
 } from "@/lib/google-workspace";
 
 export const runtime = "nodejs";
@@ -27,6 +28,9 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    const summary = body.summary.trim();
+    const startIso = body.startIso;
+    const endIso = body.endIso;
 
     const supabase = await createClient();
     const {
@@ -37,36 +41,43 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     }
 
-    const { integration, accessToken } = await getGoogleAccessToken(user.id);
-    const event = await createGoogleMeetEvent({
-      accessToken,
-      calendarId: body.calendarId || integration.selected_calendar_id || "primary",
-      summary: body.summary.trim(),
-      description: body.description?.trim(),
-      startIso: body.startIso,
-      endIso: body.endIso,
-      attendees: Array.isArray(body.attendees) ? body.attendees : [],
-    });
-    const meeting = await upsertGoogleMeetingRecord({
-      userId: user.id,
-      googleEventId: event.id ?? crypto.randomUUID(),
-      title: body.summary.trim(),
-      startIso: body.startIso,
-      endIso: body.endIso,
-      meetUrl: event.hangoutLink ?? event.htmlLink ?? null,
-      eventUrl: event.htmlLink ?? null,
-      status: "scheduled",
-      createdFrom: "google_schedule",
+    const payload = await withGoogleAccessToken(user.id, async ({ integration, accessToken }) => {
+      const event = await createGoogleMeetEvent({
+        accessToken,
+        calendarId: body.calendarId || integration.selected_calendar_id || "primary",
+        summary,
+        description: body.description?.trim(),
+        startIso,
+        endIso,
+        attendees: Array.isArray(body.attendees) ? body.attendees : [],
+      });
+      const meeting = await upsertGoogleMeetingRecord({
+        userId: user.id,
+        googleEventId: event.id ?? crypto.randomUUID(),
+        title: summary,
+        startIso,
+        endIso,
+        meetUrl: event.hangoutLink ?? event.htmlLink ?? null,
+        eventUrl: event.htmlLink ?? null,
+        status: "scheduled",
+        createdFrom: "google_schedule",
+      });
+
+      return {
+        meetingId: meeting.id,
+        googleEventId: meeting.google_event_id ?? event.id ?? null,
+        title: meeting.title,
+        eventUrl: event.htmlLink ?? null,
+        meetUrl: event.hangoutLink ?? event.htmlLink ?? null,
+      };
     });
 
-    return NextResponse.json({
-      meetingId: meeting.id,
-      googleEventId: meeting.google_event_id ?? event.id ?? null,
-      title: meeting.title,
-      eventUrl: event.htmlLink ?? null,
-      meetUrl: event.hangoutLink ?? event.htmlLink ?? null,
-    });
+    return NextResponse.json(payload);
   } catch (error) {
+    if (error instanceof GoogleIntegrationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     return internalServerErrorResponse(
       "Unable to create the Google Meet event.",
       error,

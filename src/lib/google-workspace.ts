@@ -5,6 +5,22 @@ import type { IntegrationRecord } from "@/lib/workspace";
 
 type IntegrationMetadata = Record<string, unknown> | null | undefined;
 
+export class GoogleIntegrationError extends Error {
+  status: number;
+  code: "not_connected" | "reauth_required" | "request_failed";
+
+  constructor(
+    message: string,
+    status: number,
+    code: "not_connected" | "reauth_required" | "request_failed"
+  ) {
+    super(message);
+    this.name = "GoogleIntegrationError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 export type GoogleCalendarOption = {
   id: string;
   summary: string;
@@ -29,6 +45,22 @@ function getMetadataValue(metadata: IntegrationMetadata, key: string) {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+function integrationNeedsReconnect(integration: IntegrationRecord | null) {
+  if (!integration) {
+    return false;
+  }
+
+  if (integration.status === "error" || integration.status === "reconnect_required") {
+    return true;
+  }
+
+  return Boolean(
+    integration.metadata &&
+      typeof integration.metadata === "object" &&
+      integration.metadata.reauth_required === true
+  );
+}
+
 export async function getGoogleIntegration(userId: string) {
   const admin = createAdminClient();
   const { data, error } = await admin
@@ -47,20 +79,125 @@ export async function getGoogleIntegration(userId: string) {
 export async function getGoogleAccessToken(userId: string) {
   const integration = await getGoogleIntegration(userId);
 
-  if (!integration || integration.status !== "connected") {
-    throw new Error("Google is not connected for this account.");
+  if (!integration || integration.status === "disconnected") {
+    throw new GoogleIntegrationError("Google is not connected for this account.", 409, "not_connected");
+  }
+
+  if (integrationNeedsReconnect(integration)) {
+    throw new GoogleIntegrationError(
+      "Google session expired. Reconnect Google to continue.",
+      409,
+      "reauth_required"
+    );
   }
 
   const accessToken = getMetadataValue(integration.metadata, "provider_access_token");
 
   if (!accessToken) {
-    throw new Error("Google access token is missing. Please reconnect Google.");
+    throw new GoogleIntegrationError(
+      "Google access token is missing. Please reconnect Google.",
+      409,
+      "reauth_required"
+    );
   }
 
   return {
     integration,
     accessToken,
   };
+}
+
+function getRefreshToken(integration: IntegrationRecord | null) {
+  return getMetadataValue(integration?.metadata, "provider_refresh_token");
+}
+
+function isGoogleReauthMessage(message: string) {
+  const normalized = message.toLowerCase();
+
+  return (
+    normalized.includes("invalid authentication credentials") ||
+    normalized.includes("invalid credentials") ||
+    normalized.includes("login required") ||
+    normalized.includes("invalid_grant") ||
+    normalized.includes("auth") && normalized.includes("credential")
+  );
+}
+
+async function refreshGoogleAccessToken(refreshToken: string) {
+  const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
+
+  if (!clientId || !clientSecret) {
+    return null;
+  }
+
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    }).toString(),
+    cache: "no-store",
+  });
+
+  const payload = (await response.json().catch(() => null)) as
+    | {
+        access_token?: string;
+        error?: string;
+        error_description?: string;
+      }
+    | null;
+
+  if (!response.ok || !payload?.access_token) {
+    return null;
+  }
+
+  return payload.access_token;
+}
+
+async function updateGoogleIntegration(userId: string, updates: Record<string, unknown>) {
+  const admin = createAdminClient();
+  const { error } = await admin.from("integrations_google").update(updates).eq("user_id", userId);
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function persistGoogleAccessToken(
+  userId: string,
+  integration: IntegrationRecord,
+  accessToken: string
+) {
+  await updateGoogleIntegration(userId, {
+    status: "connected",
+    metadata: {
+      ...(integration.metadata ?? {}),
+      provider_access_token: accessToken,
+      reauth_required: false,
+      last_error: null,
+    },
+  });
+}
+
+export async function markGoogleReconnectRequired(
+  userId: string,
+  integration: IntegrationRecord,
+  reason: string
+) {
+  await updateGoogleIntegration(userId, {
+    status: "reconnect_required",
+    metadata: {
+      ...(integration.metadata ?? {}),
+      reauth_required: true,
+      last_error: reason,
+    },
+  });
 }
 
 async function googleApiFetch<T>(accessToken: string, input: string, init?: RequestInit) {
@@ -92,10 +229,49 @@ async function googleApiFetch<T>(accessToken: string, input: string, init?: Requ
         ? payload.error.message
         : "Google API request failed.";
 
-    throw new Error(message);
+    if (response.status === 401 || isGoogleReauthMessage(message)) {
+      throw new GoogleIntegrationError(
+        "Google session expired. Reconnect Google to continue.",
+        409,
+        "reauth_required"
+      );
+    }
+
+    throw new GoogleIntegrationError(message, response.status || 500, "request_failed");
   }
 
   return payload as T;
+}
+
+export async function withGoogleAccessToken<T>(
+  userId: string,
+  action: (args: { integration: IntegrationRecord; accessToken: string }) => Promise<T>
+) {
+  const { integration, accessToken } = await getGoogleAccessToken(userId);
+
+  try {
+    return await action({ integration, accessToken });
+  } catch (error) {
+    if (
+      error instanceof GoogleIntegrationError &&
+      error.code === "reauth_required"
+    ) {
+      const refreshToken = getRefreshToken(integration);
+
+      if (refreshToken) {
+        const refreshedAccessToken = await refreshGoogleAccessToken(refreshToken);
+
+        if (refreshedAccessToken) {
+          await persistGoogleAccessToken(userId, integration, refreshedAccessToken);
+          return await action({ integration, accessToken: refreshedAccessToken });
+        }
+      }
+
+      await markGoogleReconnectRequired(userId, integration, error.message);
+    }
+
+    throw error;
+  }
 }
 
 export async function listGoogleCalendars(accessToken: string) {

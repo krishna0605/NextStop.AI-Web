@@ -15,6 +15,7 @@ export default async function MeetingReviewPage({
       findings={detail.findings}
       exports={detail.exports}
       notion={detail.notion}
+      transcriptAvailability={detail.transcriptAvailability}
     />
   );
 }

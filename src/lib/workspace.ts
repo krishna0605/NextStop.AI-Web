@@ -15,7 +15,21 @@ export type MeetingStatus =
 export type IntegrationStatus =
   | "disconnected"
   | "connected"
-  | "needs_configuration";
+  | "needs_configuration"
+  | "needs_destination"
+  | "reconnect_required"
+  | "error";
+
+export type TranscriptAvailabilityStatus = "available" | "expired" | "disabled";
+
+export type NotionDestinationType = "page" | "database";
+
+export interface NotionDestination {
+  id: string;
+  name: string;
+  type: NotionDestinationType;
+  url?: string | null;
+}
 
 export interface IntegrationRecord {
   user_id: string;
@@ -76,6 +90,13 @@ export interface MeetingExportRecord {
   created_at?: string | null;
 }
 
+export interface TranscriptAvailability {
+  status: TranscriptAvailabilityStatus;
+  message: string;
+  expiresAt?: string | null;
+  downloadEnabled: boolean;
+}
+
 export interface WorkspaceOverview {
   google: IntegrationRecord | null;
   notion: IntegrationRecord | null;
@@ -86,7 +107,10 @@ export interface WorkspaceOverview {
     deepgramConfigured: boolean;
     openAiConfigured: boolean;
     googleConfigured: boolean;
+    googleRefreshConfigured: boolean;
     notionConfigured: boolean;
+    transcriptDownloadsEnabled: boolean;
+    transcriptStorageMode: "memory" | "disabled";
   };
 }
 

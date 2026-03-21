@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { buildDownloadFilename, internalServerErrorResponse } from "@/lib/http";
-import { consumeEphemeralTranscript } from "@/lib/workspace-runtime";
+import { consumeEphemeralTranscript, getTranscriptAvailability } from "@/lib/workspace-runtime";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient } from "@/lib/supabase-server";
 
@@ -38,13 +38,25 @@ export async function GET(
       return NextResponse.json({ error: "Meeting not found." }, { status: 404 });
     }
 
+    const availability = getTranscriptAvailability(meetingId);
+
+    if (!availability.downloadEnabled) {
+      return NextResponse.json(
+        {
+          error: availability.message,
+          transcriptAvailability: availability,
+        },
+        { status: availability.status === "disabled" ? 410 : 404 }
+      );
+    }
+
     const transcript = consumeEphemeralTranscript(meetingId);
 
     if (!transcript?.transcript) {
       return NextResponse.json(
         {
-          error:
-            "The transcript is no longer available. It was never stored durably and may already have been downloaded or purged.",
+          error: "The transcript is no longer available. It may already have been downloaded or expired.",
+          transcriptAvailability: getTranscriptAvailability(meetingId),
         },
         { status: 404 }
       );

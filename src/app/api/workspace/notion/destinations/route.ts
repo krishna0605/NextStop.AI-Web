@@ -1,17 +1,13 @@
 import { NextResponse } from "next/server";
 
 import { internalServerErrorResponse } from "@/lib/http";
-import { exportMeetingToNotion, NotionIntegrationError } from "@/lib/notion-workspace";
+import { loadNotionDestinations, NotionIntegrationError } from "@/lib/notion-workspace";
 import { createClient } from "@/lib/supabase-server";
 
 export const runtime = "nodejs";
 
-export async function POST(
-  _request: Request,
-  { params }: { params: Promise<{ meetingId: string }> }
-) {
+export async function GET() {
   try {
-    const { meetingId } = await params;
     const supabase = await createClient();
     const {
       data: { user },
@@ -21,22 +17,18 @@ export async function POST(
       return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     }
 
-    const payload = await exportMeetingToNotion(user.id, meetingId);
+    const destinations = await loadNotionDestinations(user.id);
 
-    return NextResponse.json({
-      ok: true,
-      message: "The findings were exported to Notion successfully.",
-      pageUrl: payload.pageUrl,
-    });
+    return NextResponse.json({ destinations });
   } catch (error) {
     if (error instanceof NotionIntegrationError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
 
     return internalServerErrorResponse(
-      "Unable to export the findings to Notion.",
+      "Unable to load Notion destinations.",
       error,
-      "[workspace] Failed to export findings to Notion"
+      "[workspace] Failed to load Notion destinations"
     );
   }
 }

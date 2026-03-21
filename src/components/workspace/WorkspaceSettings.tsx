@@ -15,7 +15,10 @@ export function WorkspaceSettings({
     deepgramConfigured: boolean;
     openAiConfigured: boolean;
     googleConfigured: boolean;
+    googleRefreshConfigured: boolean;
     notionConfigured: boolean;
+    transcriptDownloadsEnabled: boolean;
+    transcriptStorageMode: "memory" | "disabled";
   };
   google: IntegrationRecord | null;
   notion: IntegrationRecord | null;
@@ -35,9 +38,11 @@ export function WorkspaceSettings({
       description:
         google?.status === "connected"
           ? `Connected${google.selected_calendar_name ? ` to ${google.selected_calendar_name}` : ""}.`
+          : google?.status === "error" || google?.status === "reconnect_required"
+            ? "Google needs to be reconnected for this account."
           : providerStatus.googleConfigured
             ? "Google is ready to connect for this account."
-            : "Google integration routing still needs to be wired.",
+            : "Google integration configuration is still incomplete.",
       icon: Mic,
       href: "/dashboard/google",
     },
@@ -46,9 +51,13 @@ export function WorkspaceSettings({
       description:
         notion?.status === "connected"
           ? `Connected${notion.selected_destination_name ? ` to ${notion.selected_destination_name}` : ""}.`
+          : notion?.status === "needs_destination"
+            ? "Connected. Choose a page or database destination to finish setup."
+          : notion?.status === "error" || notion?.status === "reconnect_required"
+            ? "Reconnect Notion to restore the export workspace."
           : providerStatus.notionConfigured
             ? "Notion is ready to connect for this account."
-            : "Notion integration routing still needs to be wired.",
+            : "Notion OAuth configuration is still incomplete.",
       icon: NotebookTabs,
       href: "/dashboard/notion",
     },
@@ -116,9 +125,8 @@ export function WorkspaceSettings({
             <div>
               <h2 className="text-xl font-semibold text-white">Transcript retention policy</h2>
               <p className="mt-2 text-sm leading-7 text-zinc-400">
-                Transcript text is processed ephemerally and only survives long enough to power a
-                one-time download. It is never written to Supabase or stored as a raw workspace
-                asset in v1.
+                Transcript text is processed ephemerally and is not treated as a durable product
+                artifact. Current mode: {providerStatus.transcriptStorageMode}.
               </p>
             </div>
           </div>
@@ -151,9 +159,8 @@ export function WorkspaceSettings({
         >
           <h2 className="text-xl font-semibold text-white">Transcript retention policy</h2>
           <p className="mt-3 text-sm leading-7 text-zinc-400">
-            Transcript text is processed ephemerally and only survives long enough to power a
-            one-time download. It is never written to Supabase or stored as a raw workspace asset
-            in v1.
+            Transcript text is processed ephemerally and findings remain the durable record. Downloads are{" "}
+            {providerStatus.transcriptDownloadsEnabled ? "currently enabled" : "currently disabled"}.
           </p>
         </div>
 

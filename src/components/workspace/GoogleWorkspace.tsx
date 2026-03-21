@@ -57,10 +57,17 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
   const searchParams = useSearchParams();
   const supabase = createClient();
 
+  const reconnectMessage =
+    (record?.status === "error" || record?.status === "reconnect_required") &&
+    record.metadata &&
+    typeof record.metadata === "object" &&
+    typeof record.metadata.last_error === "string"
+      ? record.metadata.last_error
+      : null;
   const [busyAction, setBusyAction] = useState<
     "connect" | "disconnect" | "instant" | "schedule" | "calendar" | null
   >(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(reconnectMessage);
   const [notice, setNotice] = useState<string | null>(
     searchParams.get("connected") ? "Google connected successfully." : null
   );
@@ -89,6 +96,8 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
   const [attendees, setAttendees] = useState("");
 
   const isConnected = record?.status === "connected";
+  const needsReconnect =
+    record?.status === "error" || record?.status === "reconnect_required";
 
   const loadOverview = useCallback(async () => {
     if (!isConnected) {
@@ -105,6 +114,7 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
       const payload = await response.json();
 
       if (!response.ok) {
+        if (response.status === 409) router.refresh();
         throw new Error(payload.error ?? "Unable to load Google workspace.");
       }
 
@@ -118,7 +128,7 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
     } finally {
       setLoadingOverview(false);
     }
-  }, [isConnected]);
+  }, [isConnected, router]);
 
   useEffect(() => {
     void loadOverview();
@@ -302,8 +312,9 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
           </div>
           <h1 className="text-3xl font-bold text-white">Google Calendar and Meet</h1>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
-            Connect Google first, then create instant Meet sessions, schedule meetings, and launch
-            capture directly from the browser workspace.
+            {needsReconnect
+              ? "Your saved Google session has expired. Reconnect Google to restore calendar access and Meet creation."
+              : "Connect Google first, then create instant Meet sessions, schedule meetings, and launch capture directly from the browser workspace."}
           </p>
         </motion.section>
 
@@ -314,10 +325,13 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
         ) : null}
 
         <section className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-10 text-center">
-          <h2 className="text-2xl font-semibold text-white">Google is not connected yet</h2>
+          <h2 className="text-2xl font-semibold text-white">
+            {needsReconnect ? "Google needs to be reconnected" : "Google is not connected yet"}
+          </h2>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-zinc-400">
-            Use the same Supabase account to connect Google Calendar and unlock instant Meet launch
-            plus scheduled meeting creation.
+            {needsReconnect
+              ? "The stored Google token is no longer valid. Reconnect the same Google account to restore calendar syncing."
+              : "Use the same Supabase account to connect Google Calendar and unlock instant Meet launch plus scheduled meeting creation."}
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Button
@@ -326,7 +340,7 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
               isLoading={busyAction === "connect"}
               className="brand-button-primary h-12 px-8 font-semibold"
             >
-              Connect Google
+              {needsReconnect ? "Reconnect Google" : "Connect Google"}
             </Button>
             <Link href="/dashboard/settings">
               <Button radius="full" className="brand-button-secondary h-12 px-8 font-semibold">
@@ -355,7 +369,8 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
             <h1 className="text-3xl font-bold text-white">Google Calendar and Meet</h1>
             <p className="mt-2 text-sm leading-7 text-zinc-400">
               Launch an instant Google Meet or schedule a meeting with title, description, attendees,
-              and calendar routing from the browser workspace.
+              and calendar routing from the browser workspace. If tokens expire, the app attempts
+              a silent refresh before falling back to reconnect.
             </p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300">

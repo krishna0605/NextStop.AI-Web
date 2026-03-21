@@ -36,7 +36,7 @@ export async function POST(request: Request) {
             external_account_email: null,
             selected_calendar_id: null,
             selected_calendar_name: null,
-            metadata: {},
+            metadata: null,
             connected_at: null,
           }
         : {
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
             external_workspace_name: null,
             selected_destination_id: null,
             selected_destination_name: null,
-            metadata: {},
+            metadata: null,
             connected_at: null,
           };
 

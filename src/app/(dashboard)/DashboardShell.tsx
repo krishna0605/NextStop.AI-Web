@@ -11,6 +11,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 
@@ -135,9 +136,12 @@ export function DashboardShell({
         <div className="border-t border-white/8 p-4">
           <div className="flex items-center gap-3">
             {avatarUrl ? (
-              <img
+              <Image
                 src={avatarUrl}
                 alt={displayName}
+                width={36}
+                height={36}
+                unoptimized
                 className="h-9 w-9 rounded-full border border-white/10 object-cover"
               />
             ) : (

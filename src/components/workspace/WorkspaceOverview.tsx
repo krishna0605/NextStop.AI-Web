@@ -76,13 +76,21 @@ export function WorkspaceOverview({
       description:
         overview.google?.status === "connected"
           ? overview.google.selected_calendar_name || "Connected and ready for Meet creation"
-          : "Connect Google Calendar and Meet creation",
+                  : overview.google?.status === "error" ||
+                      overview.google?.status === "reconnect_required"
+            ? overview.providerStatus.googleRefreshConfigured
+              ? "Google needs attention. The app will try silent token refresh before requiring reconnect."
+              : "Reconnect Google to restore calendar access and Meet creation."
+            : "Connect Google Calendar and Meet creation",
       status:
         overview.google?.status === "connected"
           ? "Connected"
+                  : overview.google?.status === "error" ||
+                      overview.google?.status === "reconnect_required"
+            ? "Reconnect needed"
           : overview.providerStatus.googleConfigured
             ? "Needs connection"
-            : "Function wiring needed",
+            : "Configuration needed",
       href: "/dashboard/google",
       icon: CalendarDays,
       accentRgb: "var(--brand-trust-rgb)",
@@ -92,13 +100,23 @@ export function WorkspaceOverview({
       description:
         overview.notion?.status === "connected"
           ? overview.notion.selected_destination_name || "Export destination configured"
+          : overview.notion?.status === "needs_destination"
+            ? "Connected. Pick a page or database destination to finish setup."
+                  : overview.notion?.status === "error" ||
+                      overview.notion?.status === "reconnect_required"
+            ? "Reconnect Notion to restore the export workspace."
           : "Configure page-first or database-first exports",
       status:
         overview.notion?.status === "connected"
           ? "Connected"
+          : overview.notion?.status === "needs_destination"
+            ? "Destination needed"
+                  : overview.notion?.status === "error" ||
+                      overview.notion?.status === "reconnect_required"
+            ? "Reconnect needed"
           : overview.providerStatus.notionConfigured
             ? "Needs connection"
-            : "Function wiring needed",
+            : "Configuration needed",
       href: "/dashboard/notion",
       icon: NotebookTabs,
       accentRgb: "var(--brand-primary-rgb)",
@@ -346,7 +364,7 @@ export function WorkspaceOverview({
                           </span>
                         </div>
                         <p className="mt-2 text-sm text-zinc-400">
-                          {MEETING_SOURCE_LABELS[meeting.source_type]} · {formatWorkspaceDate(meeting.created_at)}
+                          {MEETING_SOURCE_LABELS[meeting.source_type]} | {formatWorkspaceDate(meeting.created_at)}
                         </p>
                         <p className="mt-3 line-clamp-2 text-sm leading-6 text-zinc-300">
                           {findings?.summary_short ?? meetingStatus.description}
@@ -377,8 +395,8 @@ export function WorkspaceOverview({
                 <div>
                   <p className="font-medium text-white">Transcript is not stored</p>
                   <p className="mt-1 text-sm leading-6 text-zinc-400">
-                    Only findings, summaries, and export metadata remain in Supabase. The transcript
-                    buffer stays ephemeral unless you explicitly download it once.
+                    Only findings, summaries, and export metadata remain in Supabase. Transcript
+                    access stays ephemeral and can be disabled entirely in production.
                   </p>
                 </div>
               </div>
@@ -423,11 +441,11 @@ export function WorkspaceOverview({
               <span className="text-zinc-200">
                 {capabilities.displayCapture ? "tab sharing available" : "tab sharing unavailable"}
               </span>
-              {" · "}
+              {" | "}
               <span className="text-zinc-200">
                 {capabilities.microphoneCapture ? "microphone available" : "microphone unavailable"}
               </span>
-              {" · "}
+              {" | "}
               <span className="text-zinc-200">
                 {capabilities.secureContext ? "secure context" : "not secure"}
               </span>

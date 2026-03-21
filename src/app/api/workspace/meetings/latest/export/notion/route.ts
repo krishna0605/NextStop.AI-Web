@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { internalServerErrorResponse } from "@/lib/http";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { exportMeetingToNotion, NotionIntegrationError } from "@/lib/notion-workspace";
 import { createClient } from "@/lib/supabase-server";
 
 export const runtime = "nodejs";
@@ -18,36 +19,17 @@ export async function POST() {
     }
 
     const admin = createAdminClient();
-    const [{ data: notionIntegration, error: integrationError }, { data: latestMeeting, error: latestMeetingError }] =
-      await Promise.all([
-        admin
-          .from("integrations_notion")
-          .select("*")
-          .eq("user_id", user.id)
-          .maybeSingle(),
-        admin
-          .from("web_meetings")
-          .select("*")
-          .eq("user_id", user.id)
-          .eq("status", "ready")
-          .order("updated_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ]);
-
-    if (integrationError) {
-      throw integrationError;
-    }
+    const { data: latestMeeting, error: latestMeetingError } = await admin
+      .from("web_meetings")
+      .select("id,title")
+      .eq("user_id", user.id)
+      .eq("status", "ready")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     if (latestMeetingError) {
       throw latestMeetingError;
-    }
-
-    if (!notionIntegration || notionIntegration.status !== "connected") {
-      return NextResponse.json(
-        { error: "Connect Notion and choose a destination before syncing there." },
-        { status: 409 }
-      );
     }
 
     if (!latestMeeting) {
@@ -57,39 +39,24 @@ export async function POST() {
       );
     }
 
-    const { data: findings } = await admin
-      .from("meeting_findings")
-      .select("meeting_id")
-      .eq("meeting_id", latestMeeting.id)
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (!findings) {
-      return NextResponse.json(
-        { error: "The latest meeting does not have findings ready for export yet." },
-        { status: 409 }
-      );
-    }
-
-    await admin.from("meeting_exports").insert({
-      meeting_id: latestMeeting.id,
-      user_id: user.id,
-      export_type: "notion",
-      status: "queued_for_backend_integration",
-      destination: notionIntegration.selected_destination_name ?? "configured destination",
-    });
+    const payload = await exportMeetingToNotion(user.id, latestMeeting.id);
 
     return NextResponse.json({
       ok: true,
       meetingId: latestMeeting.id,
       meetingTitle: latestMeeting.title,
-      message: "The latest meeting findings were queued for Notion export.",
+      message: "The latest meeting findings were exported to Notion successfully.",
+      pageUrl: payload.pageUrl,
     });
   } catch (error) {
+    if (error instanceof NotionIntegrationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     return internalServerErrorResponse(
-      "Unable to queue the latest Notion export.",
+      "Unable to export the latest findings to Notion.",
       error,
-      "[workspace] Failed to queue latest Notion export"
+      "[workspace] Failed to export latest findings to Notion"
     );
   }
 }

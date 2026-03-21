@@ -17,6 +17,7 @@ import type {
   IntegrationRecord,
   MeetingExportRecord,
   MeetingFindingsRecord,
+  TranscriptAvailability,
   WebMeetingRecord,
 } from "@/lib/workspace";
 import { compactList, formatWorkspaceDate, MEETING_SOURCE_LABELS } from "@/lib/workspace";
@@ -58,22 +59,36 @@ async function downloadBlob(filename: string, response: Response) {
   URL.revokeObjectURL(url);
 }
 
+function renderList(items: string[] | null | undefined, fallback: string) {
+  return compactList(items, fallback).map((item) => (
+    <li key={item}>- {item}</li>
+  ));
+}
+
 export function MeetingReview({
   meeting,
   findings,
   exports,
   notion,
+  transcriptAvailability,
 }: {
   meeting: WebMeetingRecord;
   findings: MeetingFindingsRecord | null;
   exports: MeetingExportRecord[];
   notion: IntegrationRecord | null;
+  transcriptAvailability: TranscriptAvailability;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<"pdf" | "transcript" | "notion" | null>(null);
 
   const markdown = useMemo(() => findingsToMarkdown(meeting, findings), [meeting, findings]);
   const notionReady = notion?.status === "connected";
+  const transcriptActionLabel =
+    transcriptAvailability.status === "disabled"
+      ? "Transcript unavailable"
+      : transcriptAvailability.status === "expired"
+        ? "Transcript expired"
+        : "Temporary transcript";
 
   async function handleCopy() {
     setError(null);
@@ -132,11 +147,11 @@ export function MeetingReview({
       const payload = await response.json();
 
       if (!response.ok) {
-        throw new Error(payload.error ?? "Unable to queue the Notion export.");
+        throw new Error(payload.error ?? "Unable to export the findings to Notion.");
       }
     } catch (caughtError) {
       setError(
-        caughtError instanceof Error ? caughtError.message : "Unable to queue the Notion export."
+        caughtError instanceof Error ? caughtError.message : "Unable to export the findings to Notion."
       );
     } finally {
       setBusyAction(null);
@@ -155,8 +170,7 @@ export function MeetingReview({
             <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Review</p>
             <h1 className="mt-1 text-3xl font-bold text-white">{meeting.title}</h1>
             <p className="mt-2 text-sm text-zinc-400">
-              {MEETING_SOURCE_LABELS[meeting.source_type]} • {formatWorkspaceDate(meeting.created_at)} •
-              only findings are stored
+              {MEETING_SOURCE_LABELS[meeting.source_type]} | {formatWorkspaceDate(meeting.created_at)} | only findings are stored
             </p>
             <p className="mt-4 text-sm leading-7 text-zinc-300">
               {findings?.summary_short ??
@@ -196,11 +210,12 @@ export function MeetingReview({
             <Button
               radius="full"
               onPress={handleTranscriptDownload}
+              isDisabled={!transcriptAvailability.downloadEnabled}
               isLoading={busyAction === "transcript"}
               className="brand-button-secondary h-11 font-semibold"
               startContent={busyAction === "transcript" ? undefined : <Download className="h-4 w-4" />}
             >
-              One-time transcript
+              {transcriptActionLabel}
             </Button>
           </div>
         </div>
@@ -229,25 +244,19 @@ export function MeetingReview({
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Executive bullets</p>
                 <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                  {compactList(findings?.executive_bullets_json, "No executive bullets captured").map((item) => (
-                    <li key={item}>• {item}</li>
-                  ))}
+                  {renderList(findings?.executive_bullets_json, "No executive bullets captured")}
                 </ul>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Decisions</p>
                 <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                  {compactList(findings?.decisions_json, "No decisions captured").map((item) => (
-                    <li key={item}>• {item}</li>
-                  ))}
+                  {renderList(findings?.decisions_json, "No decisions captured")}
                 </ul>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Action items</p>
                 <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                  {compactList(findings?.action_items_json, "No action items captured").map((item) => (
-                    <li key={item}>• {item}</li>
-                  ))}
+                  {renderList(findings?.action_items_json, "No action items captured")}
                 </ul>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -256,17 +265,13 @@ export function MeetingReview({
                   <div>
                     <p className="font-medium text-white">Risks</p>
                     <ul className="mt-2 space-y-2">
-                      {compactList(findings?.risks_json, "No risks captured").map((item) => (
-                        <li key={item}>• {item}</li>
-                      ))}
+                      {renderList(findings?.risks_json, "No risks captured")}
                     </ul>
                   </div>
                   <div>
                     <p className="font-medium text-white">Follow-ups</p>
                     <ul className="mt-2 space-y-2">
-                      {compactList(findings?.follow_ups_json, "No follow-ups captured").map((item) => (
-                        <li key={item}>• {item}</li>
-                      ))}
+                      {renderList(findings?.follow_ups_json, "No follow-ups captured")}
                     </ul>
                   </div>
                 </div>
@@ -281,9 +286,21 @@ export function MeetingReview({
             <div className="mt-4 flex items-start gap-3">
               <ShieldCheck className="mt-1 h-5 w-5 text-[var(--brand-highlight)]" />
               <p className="text-sm leading-7 text-zinc-300">
-                This meeting keeps only the findings bundle. The transcript was never stored in
-                Supabase and can only be downloaded once if it still exists in the active session buffer.
+                This meeting keeps only the findings bundle. Transcript access is environment-bounded,
+                may be disabled in production, and is never the durable system of record.
               </p>
+            </div>
+          </div>
+
+          <div className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6">
+            <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Transcript access</p>
+            <div className="mt-4 space-y-2 text-sm leading-7 text-zinc-300">
+              <p>{transcriptAvailability.message}</p>
+              {transcriptAvailability.expiresAt ? (
+                <p className="text-zinc-400">
+                  Available until {formatWorkspaceDate(transcriptAvailability.expiresAt)}
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -302,8 +319,8 @@ export function MeetingReview({
 
             <p className="mt-4 text-sm leading-7 text-zinc-300">
               {notionReady
-                ? "Queue this findings bundle for the configured Notion destination."
-                : "Connect Notion and choose a destination before exporting summaries there."}
+                ? "Export this findings bundle to the configured Notion destination."
+                : "Connect Notion and choose a destination before exporting findings there."}
             </p>
 
             <div className="mt-5 grid grid-cols-1 gap-3">

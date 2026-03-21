@@ -3,9 +3,10 @@ import { NextResponse } from "next/server";
 import { internalServerErrorResponse } from "@/lib/http";
 import { createClient } from "@/lib/supabase-server";
 import {
-  getGoogleAccessToken,
+  GoogleIntegrationError,
   listGoogleCalendars,
   saveSelectedGoogleCalendar,
+  withGoogleAccessToken,
 } from "@/lib/google-workspace";
 
 export const runtime = "nodejs";
@@ -29,8 +30,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     }
 
-    const { accessToken } = await getGoogleAccessToken(user.id);
-    const calendars = await listGoogleCalendars(accessToken);
+    const calendars = await withGoogleAccessToken(user.id, async ({ accessToken }) =>
+      listGoogleCalendars(accessToken)
+    );
     const selectedCalendar = calendars.find((calendar) => calendar.id === body.calendarId);
 
     if (!selectedCalendar) {
@@ -41,6 +43,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (error instanceof GoogleIntegrationError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     return internalServerErrorResponse(
       "Unable to save the selected calendar.",
       error,
