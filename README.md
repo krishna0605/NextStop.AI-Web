@@ -124,8 +124,29 @@ See:
 
 ## Verification
 
+Local verification:
+
 ```bash
+npm run test:repo-contract
 npx tsc --noEmit
-npm run build
 npm run lint
+npm run build
+npm run test
+npm run test:e2e -- tests/e2e/smoke.spec.ts
 ```
+
+## CI / CD
+
+GitHub Actions workflows now provide:
+
+- `.github/workflows/ci.yml`
+  - static checks
+  - Vitest unit and route coverage
+  - Playwright browser smoke
+- `.github/workflows/security.yml`
+  - gitleaks secret scan
+  - dependency audit
+  - CodeQL
+- `.github/workflows/post-deploy-verify.yml`
+  - readiness endpoint validation
+  - deployed smoke checks

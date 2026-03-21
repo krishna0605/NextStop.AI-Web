@@ -1,0 +1,63 @@
+name: Post Deploy Verify
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Deployed application URL"
+        required: true
+        type: string
+
+jobs:
+  readiness-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run test:readiness -- ${{ inputs.base_url }}
+
+  preview-smoke:
+    runs-on: ubuntu-latest
+    needs: readiness-check
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e -- tests/e2e/deployed-smoke.spec.ts
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ inputs.base_url }}
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: deployed-playwright-artifacts
+          path: |
+            playwright-report
+            test-results
+
+  launch-summary:
+    runs-on: ubuntu-latest
+    needs:
+      - readiness-check
+      - preview-smoke
+    if: always()
+    steps:
+      - name: Write launch summary
+        run: |
+          echo "# Post-deploy verification" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Base URL: ${{ inputs.base_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Readiness check: ${{ needs.readiness-check.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Preview smoke: ${{ needs.preview-smoke.result }}" >> "$GITHUB_STEP_SUMMARY"

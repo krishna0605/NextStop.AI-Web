@@ -8,6 +8,18 @@
 
 ## Pre-Deploy Checklist
 
+### GitHub Actions
+
+- `CI` workflow is green:
+  - static checks
+  - Vitest suite
+  - Playwright smoke
+- `Security` workflow is green:
+  - secret scan
+  - dependency audit
+  - CodeQL
+- `Post Deploy Verify` workflow is ready to run against the final deployment URL
+
 ### Vercel
 
 - Add all app env vars from `.env.example`
@@ -97,6 +109,9 @@
 
 - `GET /api/health/readiness` returns healthy status
 - No route returns raw 500s for expired Google/Notion sessions
+- Latest GitHub Actions `CI` run is green
+- Latest GitHub Actions `Security` run is green
+- `Post Deploy Verify` passes against the deployed URL
 
 ## Rollback Checklist
 

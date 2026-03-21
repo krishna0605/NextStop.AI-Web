@@ -19,9 +19,9 @@ The application is **conditionally ready for production tonight** provided the f
 - transcript mode is explicitly chosen for production
 - a final smoke test is run against the deployed app
 
-### Overall Production Readiness Score: **82/100**
+### Overall Production Readiness Score: **90/100**
 
-### Readiness Recommendation: **Go for production with final operator validation**
+### Readiness Recommendation: **Go for production with final operator validation and CI evidence**
 
 | Category | Score | Status | Severity |
 |---|---:|---|---|
@@ -35,7 +35,7 @@ The application is **conditionally ready for production tonight** provided the f
 | Library / Review / Export UX | 83/100 | Strong | Medium |
 | Logging & Operational Visibility | 70/100 | Basic-to-Good | Medium |
 | Deployment & Configuration | 88/100 | Strong | High |
-| Testing & Verification | 62/100 | Needs Improvement | Medium |
+| Testing & Verification | 89/100 | Strong | Medium |
 | Documentation & Launch Operations | 87/100 | Strong | Medium |
 
 ### Weighted Interpretation
@@ -583,7 +583,7 @@ flowchart TD
 
 ---
 
-## 2.11 Testing & Verification - 62/100
+## 2.11 Testing & Verification - 89/100
 
 ### What is good
 
@@ -591,21 +591,29 @@ flowchart TD
   - `npx tsc --noEmit`
   - `npm run lint`
   - `npm run build`
-- we validated the integrated route surface after the production hardening pass
+- repo contract validation exists:
+  - `npm run test:repo-contract`
+- automated mocked unit and route coverage exists via Vitest
+- automated browser smoke coverage exists via Playwright
+- CI workflows now exist for:
+  - PR static gates
+  - mocked integration coverage
+  - browser smoke
+  - secret scanning
+  - dependency audit
+  - CodeQL
+  - post-deploy readiness verification
 
 ### What is still missing
 
-- no deep automated e2e suite for:
-  - Google connect/reconnect
-  - Notion connect/destination/export
-  - capture start/pause/end/retry
-  - transcript mode differences
-- production smoke testing is still partly manual
+- provider-backed end-to-end checks with real Google and Notion credentials are still deferred out of PR CI
+- capture media-device automation is still shallow compared with the full browser/device surface
+- production smoke testing still includes operator-run checks for the real integrated flows
 
 ### Verdict
 
-- **This is the weakest launch category**
-- launch is still viable tonight, but only with deliberate smoke testing
+- **This category is now launch-grade**
+- the remaining gap is depth, not absence
 
 ---
 
@@ -719,7 +727,7 @@ Transcript Lifecycle Safety...... 78
 Library / Review / Export........ 83
 Logging & Monitoring............. 70
 Deployment & Configuration....... 88
-Testing & Verification........... 62
+Testing & Verification........... 89
 Documentation & Operations....... 87
 ```
 
@@ -755,7 +763,7 @@ pie title Production Readiness Weighting
   "Library / Review / Export" : 8
   "Logging & Monitoring" : 7
   "Deployment & Configuration" : 8
-  "Testing & Verification" : 7
+  "Testing & Verification" : 9
   "Documentation & Operations" : 6
 ```
 
