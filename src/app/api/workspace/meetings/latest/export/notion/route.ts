@@ -23,7 +23,7 @@ export async function POST() {
       .from("web_meetings")
       .select("id,title")
       .eq("user_id", user.id)
-      .eq("status", "ready")
+      .in("status", ["ready", "partial_success"])
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();

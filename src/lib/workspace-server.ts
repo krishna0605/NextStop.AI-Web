@@ -5,18 +5,28 @@ import type { User } from "@supabase/supabase-js";
 import { isNotionBrokerConfigured } from "./notion-workspace";
 import type { createClient as createServerClient } from "@/lib/supabase-server";
 import {
+  getAiPipelineMode,
   getGoogleOAuthRefreshSupport,
+  getHuggingFaceConfigured,
+  getRawAssetRetentionHours,
+  getRuntimeReadiness,
+  getTranscriptRetentionMinutes,
   getTranscriptStorageMode,
   isTranscriptDownloadEnabled,
 } from "@/lib/env";
-import { getTranscriptAvailability } from "@/lib/workspace-runtime";
+import { getTranscriptAvailabilityFromAsset } from "@/lib/ai-pipeline";
 
 import type { ProfileRecord } from "./billing";
 import { createAdminClient } from "./supabase-admin";
 import type {
+  AiJobRecord,
+  AiStatusSnapshot,
+  MeetingArtifactRecord,
+  MeetingAssetRecord,
   IntegrationRecord,
   MeetingExportRecord,
   MeetingFindingsRecord,
+  SpeakerSegmentRecord,
   WebMeetingRecord,
   WorkspaceOverview,
 } from "./workspace";
@@ -182,19 +192,169 @@ async function queryExportsForMeetings(
   }
 }
 
+async function queryAiJobsForMeetings(
+  client: ServerClient | ReturnType<typeof createAdminClient>,
+  meetingIds: string[]
+) {
+  if (meetingIds.length === 0) {
+    return [] as AiJobRecord[];
+  }
+
+  try {
+    const { data, error } = await client
+      .from("ai_jobs")
+      .select("*")
+      .in("meeting_id", meetingIds)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    return (data as AiJobRecord[] | null) ?? [];
+  } catch (error) {
+    if (isWorkspaceSchemaError(error)) {
+      logWorkspaceFallback("queryAiJobsForMeetings", error);
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+async function queryArtifactsForMeetings(
+  client: ServerClient | ReturnType<typeof createAdminClient>,
+  meetingIds: string[]
+) {
+  if (meetingIds.length === 0) {
+    return [] as MeetingArtifactRecord[];
+  }
+
+  try {
+    const { data, error } = await client
+      .from("meeting_artifacts")
+      .select("*")
+      .in("meeting_id", meetingIds);
+
+    if (error) {
+      throw error;
+    }
+
+    return (data as MeetingArtifactRecord[] | null) ?? [];
+  } catch (error) {
+    if (isWorkspaceSchemaError(error)) {
+      logWorkspaceFallback("queryArtifactsForMeetings", error);
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+async function queryAssetsForMeetings(
+  client: ServerClient | ReturnType<typeof createAdminClient>,
+  meetingIds: string[]
+) {
+  if (meetingIds.length === 0) {
+    return [] as MeetingAssetRecord[];
+  }
+
+  try {
+    const { data, error } = await client
+      .from("meeting_assets")
+      .select("*")
+      .in("meeting_id", meetingIds)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    return (data as MeetingAssetRecord[] | null) ?? [];
+  } catch (error) {
+    if (isWorkspaceSchemaError(error)) {
+      logWorkspaceFallback("queryAssetsForMeetings", error);
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+async function querySpeakerSegmentsForMeeting(
+  client: ServerClient | ReturnType<typeof createAdminClient>,
+  meetingId: string,
+  userId: string
+) {
+  try {
+    const { data, error } = await client
+      .from("meeting_speaker_segments")
+      .select("*")
+      .eq("meeting_id", meetingId)
+      .eq("user_id", userId)
+      .order("start_ms", { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    return (data as SpeakerSegmentRecord[] | null) ?? [];
+  } catch (error) {
+    if (isWorkspaceSchemaError(error)) {
+      logWorkspaceFallback("querySpeakerSegmentsForMeeting", error);
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+function buildAiStatusByMeetingId(
+  meetings: WebMeetingRecord[],
+  jobs: AiJobRecord[],
+  artifacts: MeetingArtifactRecord[],
+  assets: MeetingAssetRecord[]
+) {
+  return meetings.reduce<Record<string, AiStatusSnapshot | undefined>>((acc, meeting) => {
+    const meetingJobs = jobs.filter((job) => job.meeting_id === meeting.id);
+    const latestJob = meetingJobs[0] ?? null;
+    const meetingArtifacts = artifacts.filter((artifact) => artifact.meeting_id === meeting.id);
+    const meetingAssets = assets.filter((asset) => asset.meeting_id === meeting.id);
+    const transcriptAsset =
+      meetingAssets.find((asset) => asset.asset_kind === "transcript_text") ?? null;
+    const rawAudioAsset =
+      meetingAssets.find((asset) => asset.asset_kind === "audio_raw") ?? null;
+
+    acc[meeting.id] = {
+      meetingId: meeting.id,
+      meetingStatus: meeting.status,
+      latestJob,
+      artifacts: meetingArtifacts,
+      transcriptAsset,
+      rawAudioAsset,
+      pending: ["queued", "transcribing", "analyzing", "processing"].includes(meeting.status),
+    };
+
+    return acc;
+  }, {});
+}
+
 export function getWorkspaceProviderStatus() {
-  const supabaseConfigured = Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  );
+  const readiness = getRuntimeReadiness();
 
   return {
-    deepgramConfigured: Boolean(process.env.DEEPGRAM_API_KEY),
-    openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
-    googleConfigured: supabaseConfigured,
+    deepgramConfigured: readiness.deepgramConfigured,
+    openAiConfigured: readiness.openAiConfigured,
+    aiCoreConfigured: readiness.aiCoreConfigured,
+    huggingFaceConfigured: getHuggingFaceConfigured(),
+    googleConfigured: readiness.supabaseConfigured,
     googleRefreshConfigured: getGoogleOAuthRefreshSupport(),
     notionConfigured: isNotionBrokerConfigured(),
     transcriptDownloadsEnabled: isTranscriptDownloadEnabled(),
     transcriptStorageMode: getTranscriptStorageMode(),
+    transcriptRetentionMinutes: getTranscriptRetentionMinutes(),
+    rawAssetRetentionHours: getRawAssetRetentionHours(),
+    aiPipelineMode: getAiPipelineMode(),
   };
 }
 
@@ -212,10 +372,14 @@ export async function loadWorkspaceOverview(
   ]);
 
   const meetingIds = meetings.map((meeting) => meeting.id);
-  const [findings, exports] = await Promise.all([
+  const [findings, exports, jobs, artifacts, assets] = await Promise.all([
     queryFindingsForMeetings(queryClient, meetingIds),
     queryExportsForMeetings(queryClient, meetingIds),
+    queryAiJobsForMeetings(queryClient, meetingIds),
+    queryArtifactsForMeetings(queryClient, meetingIds),
+    queryAssetsForMeetings(queryClient, meetingIds),
   ]);
+  const aiStatusByMeetingId = buildAiStatusByMeetingId(meetings, jobs, artifacts, assets);
 
   return {
     google,
@@ -232,6 +396,7 @@ export async function loadWorkspaceOverview(
       },
       {}
     ),
+    aiStatusByMeetingId,
     providerStatus: getWorkspaceProviderStatus(),
   };
 }
@@ -260,7 +425,16 @@ export async function loadMeetingDetail(
       return null;
     }
 
-    const [{ data: findings }, { data: exports }, google, notion] = await Promise.all([
+    const [
+      { data: findings },
+      { data: exports },
+      google,
+      notion,
+      jobs,
+      artifacts,
+      assets,
+      speakerSegments,
+    ] = await Promise.all([
       queryClient
         .from("meeting_findings")
         .select("*")
@@ -275,15 +449,28 @@ export async function loadMeetingDetail(
         .order("created_at", { ascending: false }),
       queryMaybeSingle<IntegrationRecord>(queryClient, "integrations_google", userId),
       queryMaybeSingle<IntegrationRecord>(queryClient, "integrations_notion", userId),
+      queryAiJobsForMeetings(queryClient, [meetingId]),
+      queryArtifactsForMeetings(queryClient, [meetingId]),
+      queryAssetsForMeetings(queryClient, [meetingId]),
+      querySpeakerSegmentsForMeeting(queryClient, meetingId, userId),
     ]);
+    const aiStatus = buildAiStatusByMeetingId(
+      [meeting as WebMeetingRecord],
+      jobs,
+      artifacts,
+      assets
+    )[meetingId];
 
     return {
       meeting: meeting as WebMeetingRecord,
       findings: (findings as MeetingFindingsRecord | null) ?? null,
       exports: (exports as MeetingExportRecord[] | null) ?? [],
+      artifacts,
+      speakerSegments,
+      aiStatus: aiStatus ?? null,
       google,
       notion,
-      transcriptAvailability: getTranscriptAvailability(meetingId),
+      transcriptAvailability: getTranscriptAvailabilityFromAsset(aiStatus?.transcriptAsset ?? null),
       providerStatus: getWorkspaceProviderStatus(),
     };
   } catch (error) {

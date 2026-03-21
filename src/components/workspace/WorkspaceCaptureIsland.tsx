@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { BrandLogoIcon } from "@/components/BrandLogoIcon";
+import { createClient as createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 const STORAGE_KEY = "nextstop-workspace-capture-session";
 
@@ -240,12 +241,51 @@ export function WorkspaceCaptureIsland() {
   }
 
   async function uploadFinalizeBlob(meeting: ActiveMeetingRef, audioBlob: Blob) {
-    const formData = new FormData();
-    formData.append("audio", audioBlob, "meeting-capture.webm");
-    formData.append("mimeType", audioBlob.type || "audio/webm");
-    const response = await fetch(`/api/workspace/meetings/${meeting.id}/finalize`, { method: "POST", body: formData });
+    const uploadResponse = await fetch(`/api/workspace/meetings/${meeting.id}/upload-url`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename: "meeting-capture.webm",
+      }),
+    });
+    const uploadPayload = (await uploadResponse.json()) as {
+      error?: string;
+      bucket?: string;
+      path?: string;
+      token?: string;
+    };
+
+    if (!uploadResponse.ok || !uploadPayload.bucket || !uploadPayload.path || !uploadPayload.token) {
+      throw new Error(uploadPayload.error ?? "Unable to prepare the meeting upload.");
+    }
+
+    const supabase = createSupabaseBrowserClient();
+    const file = new File([audioBlob], "meeting-capture.webm", {
+      type: audioBlob.type || "audio/webm",
+    });
+    const { error: uploadError } = await supabase.storage
+      .from(uploadPayload.bucket)
+      .uploadToSignedUrl(uploadPayload.path, uploadPayload.token, file, {
+        upsert: true,
+        contentType: file.type,
+      });
+
+    if (uploadError) {
+      throw new Error(uploadError.message);
+    }
+
+    const response = await fetch(`/api/workspace/meetings/${meeting.id}/process`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bucket: uploadPayload.bucket,
+        path: uploadPayload.path,
+        mimeType: file.type || "audio/webm",
+        byteSize: file.size,
+      }),
+    });
     const payload = (await response.json()) as { error?: string };
-    if (!response.ok) throw new Error(payload.error ?? "Unable to finalize the meeting session.");
+    if (!response.ok) throw new Error(payload.error ?? "Unable to queue the meeting for AI processing.");
   }
 
   async function resetToIdle(nextNotice?: string | null) {
@@ -336,7 +376,7 @@ export function WorkspaceCaptureIsland() {
         recorder.stop();
       });
       await uploadFinalizeBlob(activeMeeting, audioBlob);
-      await resetToIdle(`Findings are ready for "${activeMeeting.title}" in Library.`);
+      await resetToIdle(`AI processing started for "${activeMeeting.title}". Review the Library for live status and artifacts.`);
     } catch (caughtError) {
       const audioBlob = recordedChunksRef.current.length > 0 ? new Blob(recordedChunksRef.current, { type: mediaRecorderRef.current?.mimeType || "audio/webm" }) : null;
       if (audioBlob && audioBlob.size > 0) {
@@ -365,7 +405,7 @@ export function WorkspaceCaptureIsland() {
     try {
       const retryPayload = retryableFinalizeRef.current;
       await uploadFinalizeBlob(retryPayload.meeting, retryPayload.blob);
-      await resetToIdle(`Findings are ready for "${retryPayload.meeting.title}" in Library.`);
+      await resetToIdle(`AI processing restarted for "${retryPayload.meeting.title}".`);
     } catch (caughtError) {
       setCaptureState("failed");
       setError(caughtError instanceof Error ? caughtError.message : "Unable to retry the meeting finalization.");
@@ -531,7 +571,7 @@ export function WorkspaceCaptureIsland() {
                 ) : captureState === "processing" ? (
                   <>
                     <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                    <span>Generating findings</span>
+                    <span>Uploading and queueing AI</span>
                   </>
                 ) : context.googleConnected ? (
                   <>

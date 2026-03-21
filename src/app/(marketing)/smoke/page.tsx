@@ -8,6 +8,8 @@ import { NotionWorkspace } from "@/components/workspace/NotionWorkspace";
 import { WorkspaceCaptureIsland } from "@/components/workspace/WorkspaceCaptureIsland";
 import { WorkspaceLibrary } from "@/components/workspace/WorkspaceLibrary";
 import {
+  smokeAiStatusReady,
+  smokeMeetingArtifacts,
   smokeGoogleReconnectRecord,
   smokeMeetingExports,
   smokeNotionNeedsDestinationRecord,
@@ -58,9 +60,12 @@ export default function SmokePage() {
         <MeetingReview
           meeting={smokeReadyMeeting}
           findings={smokeReadyFindings}
+          artifacts={smokeMeetingArtifacts}
+          aiStatus={smokeAiStatusReady}
           exports={smokeMeetingExports}
           notion={smokeNotionNeedsDestinationRecord}
           transcriptAvailability={smokeTranscriptDisabled}
+          providerStatus={smokeWorkspaceOverview.providerStatus}
         />
       </section>
 

@@ -67,6 +67,16 @@ Open [http://localhost:3000](http://localhost:3000).
 
 - `OPENAI_API_KEY`
 - `DEEPGRAM_API_KEY`
+- `AI_PIPELINE_MODE`
+- `AI_CORE_API_URL`
+- `AI_CORE_SHARED_SECRET`
+- `SUPABASE_MEETING_AUDIO_BUCKET`
+- `SUPABASE_MEETING_TRANSCRIPT_BUCKET`
+- `RAW_ASSET_RETENTION_HOURS`
+- `HUGGINGFACE_API_TOKEN`
+- `HUGGINGFACE_ASR_ENDPOINT_URL`
+- `HUGGINGFACE_DIARIZATION_ENDPOINT_URL`
+- `HUGGINGFACE_LLM_ENDPOINT_URL`
 
 ### Transcript lifecycle
 
@@ -112,9 +122,11 @@ Primary production target:
 
 - Vercel for the Next.js app
 - Supabase for auth, database, storage, and OAuth callbacks
-- Railway reserved only if a sidecar or future background worker becomes necessary
+- Railway for the `ai-core` API, workers, Redis-backed job queue, and TTL cleanup
+- Hugging Face dedicated Inference Endpoints for ASR, diarization, and structured extraction
 
-The current production-safe build does **not** require a mandatory Railway service.
+If Railway is not configured yet, the web app can fall back to the legacy inline path with
+Deepgram and OpenAI.
 
 ## Release Checklist
 

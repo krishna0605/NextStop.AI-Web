@@ -1,46 +1,65 @@
 import { NextResponse } from "next/server";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
+import { getMeetingStructuredContent } from "@/lib/ai-pipeline";
 import { buildDownloadFilename, internalServerErrorResponse } from "@/lib/http";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient } from "@/lib/supabase-server";
-import type { MeetingFindingsRecord, WebMeetingRecord } from "@/lib/workspace";
+import type {
+  MeetingArtifactRecord,
+  MeetingFindingsRecord,
+  WebMeetingRecord,
+} from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
-function meetingToLines(meeting: WebMeetingRecord, findings: MeetingFindingsRecord | null) {
+function meetingToLines(
+  meeting: WebMeetingRecord,
+  findings: MeetingFindingsRecord | null,
+  artifacts: MeetingArtifactRecord[]
+) {
+  const structured = getMeetingStructuredContent({
+    meeting,
+    findings,
+    artifacts,
+  });
+
   return [
     meeting.title,
     "",
-    findings?.summary_short || "No short summary available.",
+    structured.summaryShort || "No short summary available.",
     "",
     "Summary",
-    findings?.summary_full || "No full summary available.",
+    structured.summaryFull || "No full summary available.",
     "",
     "Executive Bullets",
-    ...(findings?.executive_bullets_json?.map((item) => `- ${item}`) ?? ["- Not available"]),
+    ...structured.executiveBullets.map((item) => `- ${item}`),
     "",
     "Decisions",
-    ...(findings?.decisions_json?.map((item) => `- ${item}`) ?? ["- Not available"]),
+    ...structured.decisions.map((item) => `- ${item}`),
     "",
     "Action Items",
-    ...(findings?.action_items_json?.map((item) => `- ${item}`) ?? ["- Not available"]),
+    ...structured.actionItems.map((item) => `- ${item}`),
     "",
     "Risks",
-    ...(findings?.risks_json?.map((item) => `- ${item}`) ?? ["- Not available"]),
+    ...structured.risks.map((item) => `- ${item}`),
     "",
     "Follow Ups",
-    ...(findings?.follow_ups_json?.map((item) => `- ${item}`) ?? ["- Not available"]),
+    ...structured.followUps.map((item) => `- ${item}`),
   ];
 }
 
-async function buildPdf(meeting: WebMeetingRecord, findings: MeetingFindingsRecord | null) {
+async function buildPdf(
+  meeting: WebMeetingRecord,
+  findings: MeetingFindingsRecord | null,
+  artifacts: MeetingArtifactRecord[]
+) {
   const pdf = await PDFDocument.create();
   let page = pdf.addPage([595, 842]);
   const { width, height } = page.getSize();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const lines = meetingToLines(meeting, findings);
+  const lines = meetingToLines(meeting, findings, artifacts);
   let y = height - 56;
 
   for (const [index, line] of lines.entries()) {
@@ -90,7 +109,7 @@ export async function POST(
     }
 
     const admin = createAdminClient();
-    const [{ data: meeting }, { data: findings }] = await Promise.all([
+    const [{ data: meeting }, { data: findings }, { data: artifacts }] = await Promise.all([
       admin
         .from("web_meetings")
         .select("*")
@@ -103,6 +122,11 @@ export async function POST(
         .eq("meeting_id", meetingId)
         .eq("user_id", user.id)
         .maybeSingle(),
+      admin
+        .from("meeting_artifacts")
+        .select("*")
+        .eq("meeting_id", meetingId)
+        .eq("user_id", user.id),
     ]);
 
     if (!meeting) {
@@ -111,7 +135,8 @@ export async function POST(
 
     const pdfBytes = await buildPdf(
       meeting as WebMeetingRecord,
-      (findings as MeetingFindingsRecord | null) ?? null
+      (findings as MeetingFindingsRecord | null) ?? null,
+      (artifacts as MeetingArtifactRecord[] | null) ?? []
     );
 
     await admin.from("meeting_exports").insert({

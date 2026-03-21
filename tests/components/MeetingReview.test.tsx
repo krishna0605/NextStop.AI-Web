@@ -4,11 +4,14 @@ import { render, screen } from "@testing-library/react";
 
 import { MeetingReview } from "@/components/workspace/MeetingReview";
 import {
+  smokeAiStatusReady,
+  smokeMeetingArtifacts,
   smokeMeetingExports,
   smokeNotionNeedsDestinationRecord,
   smokeReadyFindings,
   smokeReadyMeeting,
   smokeTranscriptDisabled,
+  smokeWorkspaceOverview,
 } from "@tests/fixtures/workspace";
 
 describe("MeetingReview", () => {
@@ -17,9 +20,12 @@ describe("MeetingReview", () => {
       <MeetingReview
         meeting={smokeReadyMeeting}
         findings={smokeReadyFindings}
+        artifacts={smokeMeetingArtifacts}
+        aiStatus={smokeAiStatusReady}
         exports={smokeMeetingExports}
         notion={smokeNotionNeedsDestinationRecord}
         transcriptAvailability={smokeTranscriptDisabled}
+        providerStatus={smokeWorkspaceOverview.providerStatus}
       />
     );
 
@@ -27,6 +33,7 @@ describe("MeetingReview", () => {
     expect(
       screen.getByText(/Transcript downloads are disabled for this production launch/i)
     ).toBeInTheDocument();
-    expect(screen.getByText(/only findings are stored/i)).toBeInTheDocument();
+    expect(screen.getByText(/durable artifact bundle only/i)).toBeInTheDocument();
+    expect(screen.getByText(/AI pipeline/i)).toBeInTheDocument();
   });
 });

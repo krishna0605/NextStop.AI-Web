@@ -14,8 +14,11 @@ export default async function MeetingReviewPage({
       meeting={detail.meeting}
       findings={detail.findings}
       exports={detail.exports}
+      artifacts={detail.artifacts}
+      aiStatus={detail.aiStatus}
       notion={detail.notion}
       transcriptAvailability={detail.transcriptAvailability}
+      providerStatus={detail.providerStatus}
     />
   );
 }

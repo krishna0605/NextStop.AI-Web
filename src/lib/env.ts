@@ -1,6 +1,7 @@
 import "server-only";
 
 export type TranscriptStorageMode = "memory" | "disabled";
+export type AiPipelineMode = "railway_remote" | "inline_legacy";
 
 function readEnv(name: string) {
   const value = process.env[name]?.trim();
@@ -26,6 +27,51 @@ export function getSupabasePublicUrl() {
 
 export function getGoogleOAuthRefreshSupport() {
   return Boolean(readEnv("GOOGLE_CLIENT_ID") && readEnv("GOOGLE_CLIENT_SECRET"));
+}
+
+export function getAiCoreApiUrl() {
+  return readEnv("AI_CORE_API_URL");
+}
+
+export function getAiCoreSharedSecret() {
+  return readEnv("AI_CORE_SHARED_SECRET");
+}
+
+export function getAiPipelineMode(): AiPipelineMode {
+  const configured = readEnv("AI_PIPELINE_MODE");
+
+  if (configured === "railway_remote" || configured === "inline_legacy") {
+    return configured;
+  }
+
+  return getAiCoreApiUrl() ? "railway_remote" : "inline_legacy";
+}
+
+export function getMeetingAudioBucket() {
+  return readEnv("SUPABASE_MEETING_AUDIO_BUCKET") || "meeting-audio";
+}
+
+export function getMeetingTranscriptBucket() {
+  return readEnv("SUPABASE_MEETING_TRANSCRIPT_BUCKET") || "meeting-transcripts";
+}
+
+export function getRawAssetRetentionHours() {
+  const configured = Number(readEnv("RAW_ASSET_RETENTION_HOURS"));
+
+  if (Number.isFinite(configured) && configured > 0) {
+    return Math.min(configured, 7 * 24);
+  }
+
+  return 24;
+}
+
+export function getHuggingFaceConfigured() {
+  return Boolean(
+    readEnv("HUGGINGFACE_ASR_ENDPOINT_URL") &&
+      readEnv("HUGGINGFACE_DIARIZATION_ENDPOINT_URL") &&
+      readEnv("HUGGINGFACE_LLM_ENDPOINT_URL") &&
+      readEnv("HUGGINGFACE_API_TOKEN")
+  );
 }
 
 export function getNotionOAuthConfigured() {
@@ -84,6 +130,9 @@ export function getRuntimeReadiness() {
   const notionOauthConfigured = getNotionOAuthConfigured();
   const transcriptStorageMode = getTranscriptStorageMode();
   const transcriptDownloadsEnabled = isTranscriptDownloadEnabled();
+  const aiPipelineMode = getAiPipelineMode();
+  const aiCoreConfigured = Boolean(getAiCoreApiUrl() && getAiCoreSharedSecret());
+  const huggingFaceConfigured = getHuggingFaceConfigured();
 
   return {
     appUrl: getAppUrl(),
@@ -94,6 +143,11 @@ export function getRuntimeReadiness() {
     notionOauthConfigured,
     deepgramConfigured: Boolean(readEnv("DEEPGRAM_API_KEY")),
     openAiConfigured: Boolean(readEnv("OPENAI_API_KEY")),
+    aiPipelineMode,
+    aiCoreConfigured,
+    huggingFaceConfigured,
+    meetingAudioBucket: getMeetingAudioBucket(),
+    meetingTranscriptBucket: getMeetingTranscriptBucket(),
     razorpayConfigured: Boolean(
       readEnv("RAZORPAY_KEY_ID") &&
         readEnv("RAZORPAY_KEY_SECRET") &&
@@ -103,6 +157,7 @@ export function getRuntimeReadiness() {
     transcriptStorageMode,
     transcriptDownloadsEnabled,
     transcriptRetentionMinutes: getTranscriptRetentionMinutes(),
+    rawAssetRetentionHours: getRawAssetRetentionHours(),
     launchSummary: {
       status:
         supabaseConfigured &&
@@ -110,6 +165,12 @@ export function getRuntimeReadiness() {
         notionOauthConfigured
           ? "ready"
           : "attention_required",
+      aiMode:
+        aiPipelineMode === "railway_remote"
+          ? aiCoreConfigured
+            ? "remote_queue_ready"
+            : "remote_queue_config_missing"
+          : "inline_legacy_fallback",
       googleMode: googleRefreshConfigured ? "oauth_and_refresh" : "oauth_only",
       notionMode: notionOauthConfigured ? "local_oauth_broker" : "not_configured",
       transcriptMode:
@@ -136,6 +197,10 @@ export function getMissingEnvSummary() {
 
   if (!readiness.supabaseAdminConfigured) {
     missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  }
+
+  if (readiness.aiPipelineMode === "railway_remote" && !readiness.aiCoreConfigured) {
+    missing.push("AI_CORE_API_URL / AI_CORE_SHARED_SECRET");
   }
 
   if (!readiness.notionOauthConfigured) {

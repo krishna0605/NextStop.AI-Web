@@ -2,6 +2,7 @@ import "server-only";
 
 import crypto from "node:crypto";
 
+import { getMeetingStructuredContent } from "@/lib/ai-pipeline";
 import { createAdminClient } from "@/lib/supabase-admin";
 import {
   getAppUrl,
@@ -59,6 +60,8 @@ type FindingsRow = {
   action_items_json?: string[] | null;
   risks_json?: string[] | null;
   follow_ups_json?: string[] | null;
+  email_draft?: string | null;
+  source_model?: string | null;
 };
 
 export class NotionIntegrationError extends Error {
@@ -537,40 +540,51 @@ function bulletsToBlocks(items: string[] | null | undefined) {
   }));
 }
 
-function buildFindingsBlocks(meeting: MeetingRow, findings: FindingsRow) {
+function buildFindingsBlocks(
+  meeting: MeetingRow,
+  findings: FindingsRow,
+  artifacts: import("./workspace").MeetingArtifactRecord[]
+) {
+  const structured = getMeetingStructuredContent({
+    meeting: {
+      id: meeting.id,
+      user_id: "",
+      title: meeting.title,
+      source_type: meeting.source_type as import("./workspace").MeetingSourceType,
+      status: "ready",
+      created_at: meeting.created_at ?? null,
+    },
+    findings: {
+      id: findings.id,
+      meeting_id: meeting.id,
+      user_id: "",
+      status: "ready",
+      summary_short: findings.summary_short,
+      summary_full: findings.summary_full,
+      executive_bullets_json: findings.executive_bullets_json,
+      decisions_json: findings.decisions_json,
+      action_items_json: findings.action_items_json,
+      risks_json: findings.risks_json,
+      follow_ups_json: findings.follow_ups_json,
+      email_draft: findings.email_draft,
+      source_model: findings.source_model,
+    },
+    artifacts,
+  });
+
   return [
     headingBlock("Summary"),
-    paragraphBlock(findings.summary_full || findings.summary_short || "No summary generated yet."),
+    paragraphBlock(structured.summaryFull || structured.summaryShort || "No summary generated yet."),
     headingBlock("Executive Bullets"),
-    ...(
-      findings.executive_bullets_json && findings.executive_bullets_json.length > 0
-        ? bulletsToBlocks(findings.executive_bullets_json)
-        : [paragraphBlock("No executive bullets captured.")]
-    ),
+    ...bulletsToBlocks(structured.executiveBullets),
     headingBlock("Decisions"),
-    ...(
-      findings.decisions_json && findings.decisions_json.length > 0
-        ? bulletsToBlocks(findings.decisions_json)
-        : [paragraphBlock("No decisions captured.")]
-    ),
+    ...bulletsToBlocks(structured.decisions),
     headingBlock("Action Items"),
-    ...(
-      findings.action_items_json && findings.action_items_json.length > 0
-        ? bulletsToBlocks(findings.action_items_json)
-        : [paragraphBlock("No action items captured.")]
-    ),
+    ...bulletsToBlocks(structured.actionItems),
     headingBlock("Risks"),
-    ...(
-      findings.risks_json && findings.risks_json.length > 0
-        ? bulletsToBlocks(findings.risks_json)
-        : [paragraphBlock("No risks captured.")]
-    ),
+    ...bulletsToBlocks(structured.risks),
     headingBlock("Follow Ups"),
-    ...(
-      findings.follow_ups_json && findings.follow_ups_json.length > 0
-        ? bulletsToBlocks(findings.follow_ups_json)
-        : [paragraphBlock("No follow ups captured.")]
-    ),
+    ...bulletsToBlocks(structured.followUps),
     paragraphBlock(`Source: ${meeting.source_type} | Created: ${meeting.created_at ?? "Not set"}`),
   ];
 }
@@ -578,6 +592,7 @@ function buildFindingsBlocks(meeting: MeetingRow, findings: FindingsRow) {
 async function createNotionExportPage(args: {
   meeting: MeetingRow;
   findings: FindingsRow;
+  artifacts: import("./workspace").MeetingArtifactRecord[];
   integration: IntegrationRecord;
 }) {
   const destinationType =
@@ -593,7 +608,7 @@ async function createNotionExportPage(args: {
     throw new Error("Choose a Notion destination before exporting.");
   }
 
-  const children = buildFindingsBlocks(args.meeting, args.findings);
+  const children = buildFindingsBlocks(args.meeting, args.findings, args.artifacts);
 
   if (destinationType === "database") {
     const database = await notionApiFetch<{
@@ -656,7 +671,7 @@ async function createNotionExportPage(args: {
 
 export async function exportMeetingToNotion(userId: string, meetingId: string) {
   const admin = createAdminClient();
-  const [integration, meetingResult, findingsResult] = await Promise.all([
+  const [integration, meetingResult, findingsResult, artifactsResult] = await Promise.all([
     getNotionIntegration(userId),
     admin
       .from("web_meetings")
@@ -670,6 +685,11 @@ export async function exportMeetingToNotion(userId: string, meetingId: string) {
       .eq("meeting_id", meetingId)
       .eq("user_id", userId)
       .maybeSingle(),
+    admin
+      .from("meeting_artifacts")
+      .select("*")
+      .eq("meeting_id", meetingId)
+      .eq("user_id", userId),
   ]);
 
   if (!integration || integration.status !== "connected") {
@@ -718,6 +738,7 @@ export async function exportMeetingToNotion(userId: string, meetingId: string) {
     const createdPage = await createNotionExportPage({
       meeting: meetingResult.data as MeetingRow,
       findings: findingsResult.data as FindingsRow,
+      artifacts: (artifactsResult.data as import("./workspace").MeetingArtifactRecord[] | null) ?? [],
       integration,
     });
 

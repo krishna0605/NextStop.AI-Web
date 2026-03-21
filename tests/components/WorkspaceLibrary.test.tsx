@@ -12,6 +12,7 @@ describe("WorkspaceLibrary", () => {
     expect(screen.getByText("Candidate Interview")).toBeInTheDocument();
     expect(screen.getByText("Product Review")).toBeInTheDocument();
     expect(screen.getByText("Ready")).toBeInTheDocument();
-    expect(screen.getByText("Processing")).toBeInTheDocument();
+    expect(screen.getByText("Analyzing")).toBeInTheDocument();
+    expect(screen.getByText("extracting")).toBeInTheDocument();
   });
 });

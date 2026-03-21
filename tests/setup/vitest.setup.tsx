@@ -29,6 +29,13 @@ vi.mock("framer-motion", async () => {
 
 vi.mock("server-only", () => ({}));
 
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    refresh: vi.fn(),
+    push: vi.fn(),
+  }),
+}));
+
 vi.mock("@heroui/react", async () => {
   const ReactModule = await import("react");
 

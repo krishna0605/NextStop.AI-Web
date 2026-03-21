@@ -8,45 +8,31 @@ import {
   ExternalLink,
   FileDown,
   Mail,
+  RefreshCcw,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
+import { deriveStructuredMeetingContent } from "@/lib/meeting-artifacts";
 import type {
+  AiStatusSnapshot,
   IntegrationRecord,
+  MeetingArtifactRecord,
   MeetingExportRecord,
   MeetingFindingsRecord,
   TranscriptAvailability,
   WebMeetingRecord,
 } from "@/lib/workspace";
-import { compactList, formatWorkspaceDate, MEETING_SOURCE_LABELS } from "@/lib/workspace";
+import { formatWorkspaceDate, MEETING_SOURCE_LABELS } from "@/lib/workspace";
 
-function findingsToMarkdown(meeting: WebMeetingRecord, findings: MeetingFindingsRecord | null) {
-  return [
-    `# ${meeting.title}`,
-    "",
-    `Source: ${MEETING_SOURCE_LABELS[meeting.source_type]}`,
-    `Created: ${formatWorkspaceDate(meeting.created_at)}`,
-    "",
-    "## Summary",
-    findings?.summary_full || findings?.summary_short || "No summary generated yet.",
-    "",
-    "## Executive Bullets",
-    ...compactList(findings?.executive_bullets_json, "No executive bullets yet").map((item) => `- ${item}`),
-    "",
-    "## Decisions",
-    ...compactList(findings?.decisions_json, "No decisions captured").map((item) => `- ${item}`),
-    "",
-    "## Action Items",
-    ...compactList(findings?.action_items_json, "No action items captured").map((item) => `- ${item}`),
-    "",
-    "## Risks",
-    ...compactList(findings?.risks_json, "No risks captured").map((item) => `- ${item}`),
-    "",
-    "## Follow Ups",
-    ...compactList(findings?.follow_ups_json, "No follow ups captured").map((item) => `- ${item}`),
-  ].join("\n");
+function renderList(items: string[] | null | undefined, fallback: string) {
+  const normalized = items?.filter(Boolean) ?? [];
+  return (normalized.length > 0 ? normalized : [fallback]).map((item) => (
+    <li key={item}>- {item}</li>
+  ));
 }
 
 async function downloadBlob(filename: string, response: Response) {
@@ -59,40 +45,105 @@ async function downloadBlob(filename: string, response: Response) {
   URL.revokeObjectURL(url);
 }
 
-function renderList(items: string[] | null | undefined, fallback: string) {
-  return compactList(items, fallback).map((item) => (
-    <li key={item}>- {item}</li>
-  ));
+function artifactLabel(artifactType: MeetingArtifactRecord["artifact_type"]) {
+  switch (artifactType) {
+    case "canonical_json":
+      return "Canonical JSON";
+    case "canonical_markdown":
+      return "Canonical Markdown";
+    case "summary":
+      return "Summary";
+    case "action_items":
+      return "Actions";
+    case "email_draft":
+      return "Email Draft";
+    default:
+      return artifactType;
+  }
 }
 
 export function MeetingReview({
   meeting,
   findings,
+  artifacts,
+  aiStatus,
   exports,
   notion,
   transcriptAvailability,
+  providerStatus,
 }: {
   meeting: WebMeetingRecord;
   findings: MeetingFindingsRecord | null;
+  artifacts: MeetingArtifactRecord[];
+  aiStatus: AiStatusSnapshot | null;
   exports: MeetingExportRecord[];
   notion: IntegrationRecord | null;
   transcriptAvailability: TranscriptAvailability;
+  providerStatus: {
+    deepgramConfigured: boolean;
+    openAiConfigured: boolean;
+    aiCoreConfigured: boolean;
+    huggingFaceConfigured: boolean;
+    googleConfigured: boolean;
+    googleRefreshConfigured: boolean;
+    notionConfigured: boolean;
+    transcriptDownloadsEnabled: boolean;
+    transcriptStorageMode: "memory" | "disabled";
+    transcriptRetentionMinutes: number;
+    rawAssetRetentionHours: number;
+    aiPipelineMode: "railway_remote" | "inline_legacy";
+  };
 }) {
+  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
-  const [busyAction, setBusyAction] = useState<"pdf" | "transcript" | "notion" | null>(null);
-
-  const markdown = useMemo(() => findingsToMarkdown(meeting, findings), [meeting, findings]);
+  const [busyAction, setBusyAction] = useState<
+    "pdf" | "transcript" | "notion" | "summary" | "action_items" | "email_draft" | null
+  >(null);
   const notionReady = notion?.status === "connected";
-  const transcriptActionLabel =
-    transcriptAvailability.status === "disabled"
-      ? "Transcript unavailable"
-      : transcriptAvailability.status === "expired"
-        ? "Transcript expired"
-        : "Temporary transcript";
+
+  const structured = useMemo(
+    () =>
+      deriveStructuredMeetingContent({
+        meeting,
+        findings,
+        artifacts,
+      }),
+    [artifacts, findings, meeting]
+  );
+  const artifactRows = useMemo(
+    () =>
+      artifacts.filter((artifact) =>
+        ["summary", "action_items", "email_draft", "canonical_json", "canonical_markdown"].includes(
+          artifact.artifact_type
+        )
+      ),
+    [artifacts]
+  );
+  const modelBadges = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          artifactRows
+            .map((artifact) => artifact.source_model)
+            .concat(findings?.source_model ?? null)
+            .filter(Boolean)
+        )
+      ) as string[],
+    [artifactRows, findings?.source_model]
+  );
+
+  useEffect(() => {
+    if (!aiStatus?.pending) {
+      return;
+    }
+
+    const interval = window.setInterval(() => router.refresh(), 8000);
+    return () => window.clearInterval(interval);
+  }, [aiStatus?.pending, router]);
 
   async function handleCopy() {
     setError(null);
-    await navigator.clipboard.writeText(markdown);
+    await navigator.clipboard.writeText(structured.markdown);
   }
 
   async function handlePdf() {
@@ -109,6 +160,7 @@ export function MeetingReview({
       }
 
       await downloadBlob(`${meeting.title.replace(/\s+/g, "-").toLowerCase()}-nextstop.pdf`, response);
+      router.refresh();
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Unable to generate the PDF.");
     } finally {
@@ -128,6 +180,7 @@ export function MeetingReview({
       }
 
       await downloadBlob(`${meeting.title.replace(/\s+/g, "-").toLowerCase()}-transcript.txt`, response);
+      router.refresh();
     } catch (caughtError) {
       setError(
         caughtError instanceof Error ? caughtError.message : "Transcript is no longer available."
@@ -149,9 +202,35 @@ export function MeetingReview({
       if (!response.ok) {
         throw new Error(payload.error ?? "Unable to export the findings to Notion.");
       }
+
+      router.refresh();
     } catch (caughtError) {
       setError(
         caughtError instanceof Error ? caughtError.message : "Unable to export the findings to Notion."
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleRegenerate(artifactType: "summary" | "action_items" | "email_draft") {
+    setBusyAction(artifactType);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/workspace/meetings/${meeting.id}/artifacts/${artifactType}/regenerate`,
+        { method: "POST" }
+      );
+      const payload = await response.json();
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "Unable to regenerate this artifact.");
+      }
+
+      router.refresh();
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error ? caughtError.message : "Unable to regenerate this artifact."
       );
     } finally {
       setBusyAction(null);
@@ -170,11 +249,10 @@ export function MeetingReview({
             <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Review</p>
             <h1 className="mt-1 text-3xl font-bold text-white">{meeting.title}</h1>
             <p className="mt-2 text-sm text-zinc-400">
-              {MEETING_SOURCE_LABELS[meeting.source_type]} | {formatWorkspaceDate(meeting.created_at)} | only findings are stored
+              {MEETING_SOURCE_LABELS[meeting.source_type]} | {formatWorkspaceDate(meeting.created_at)} | durable artifact bundle only
             </p>
             <p className="mt-4 text-sm leading-7 text-zinc-300">
-              {findings?.summary_short ??
-                "Finalize a session to generate the privacy-safe findings bundle for this meeting."}
+              {structured.summaryShort}
             </p>
           </div>
 
@@ -197,7 +275,7 @@ export function MeetingReview({
               Export PDF
             </Button>
             <Link
-              href={`mailto:?subject=${encodeURIComponent(`${meeting.title} recap`)}&body=${encodeURIComponent(findings?.email_draft || markdown)}`}
+              href={`mailto:?subject=${encodeURIComponent(`${meeting.title} recap`)}&body=${encodeURIComponent(structured.emailDraft)}`}
             >
               <Button
                 radius="full"
@@ -215,7 +293,7 @@ export function MeetingReview({
               className="brand-button-secondary h-11 font-semibold"
               startContent={busyAction === "transcript" ? undefined : <Download className="h-4 w-4" />}
             >
-              {transcriptActionLabel}
+              {transcriptAvailability.downloadEnabled ? "Temporary transcript" : "Transcript unavailable"}
             </Button>
           </div>
         </div>
@@ -229,34 +307,55 @@ export function MeetingReview({
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <section className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6">
-          <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Summary</p>
-          <h2 className="mt-1 text-xl font-semibold text-white">Structured findings</h2>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Summary</p>
+              <h2 className="mt-1 text-xl font-semibold text-white">Structured findings</h2>
+            </div>
+            <Button
+              radius="full"
+              onPress={() => handleRegenerate("summary")}
+              isLoading={busyAction === "summary"}
+              className="brand-button-secondary h-10 font-semibold"
+              startContent={busyAction === "summary" ? undefined : <RefreshCcw className="h-4 w-4" />}
+            >
+              Regenerate summary
+            </Button>
+          </div>
 
           <div className="mt-6 space-y-4">
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
               <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Full summary</p>
-              <p className="mt-3 text-sm leading-7 text-zinc-300">
-                {findings?.summary_full || "No findings have been generated yet."}
-              </p>
+              <p className="mt-3 text-sm leading-7 text-zinc-300">{structured.summaryFull}</p>
             </div>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Executive bullets</p>
                 <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                  {renderList(findings?.executive_bullets_json, "No executive bullets captured")}
+                  {renderList(structured.executiveBullets, "No executive bullets captured")}
                 </ul>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                 <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Decisions</p>
                 <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                  {renderList(findings?.decisions_json, "No decisions captured")}
+                  {renderList(structured.decisions, "No decisions captured")}
                 </ul>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Action items</p>
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Action items</p>
+                  <Button
+                    radius="full"
+                    onPress={() => handleRegenerate("action_items")}
+                    isLoading={busyAction === "action_items"}
+                    className="brand-button-secondary h-8 px-3 text-xs font-semibold"
+                  >
+                    Regenerate
+                  </Button>
+                </div>
                 <ul className="mt-3 space-y-2 text-sm text-zinc-300">
-                  {renderList(findings?.action_items_json, "No action items captured")}
+                  {renderList(structured.actionItems, "No action items captured")}
                 </ul>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
@@ -265,13 +364,13 @@ export function MeetingReview({
                   <div>
                     <p className="font-medium text-white">Risks</p>
                     <ul className="mt-2 space-y-2">
-                      {renderList(findings?.risks_json, "No risks captured")}
+                      {renderList(structured.risks, "No risks captured")}
                     </ul>
                   </div>
                   <div>
                     <p className="font-medium text-white">Follow-ups</p>
                     <ul className="mt-2 space-y-2">
-                      {renderList(findings?.follow_ups_json, "No follow-ups captured")}
+                      {renderList(structured.followUps, "No follow-ups captured")}
                     </ul>
                   </div>
                 </div>
@@ -282,12 +381,77 @@ export function MeetingReview({
 
         <section className="space-y-4">
           <div className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">AI pipeline</p>
+                <h2 className="mt-1 text-xl font-semibold text-white">
+                  {aiStatus?.latestJob ? aiStatus.latestJob.stage.replace(/_/g, " ") : "Awaiting run"}
+                </h2>
+              </div>
+              <Sparkles className="h-5 w-5 text-[var(--brand-highlight)]" />
+            </div>
+            <div className="mt-4 space-y-3 text-sm text-zinc-300">
+              <p>
+                Status: {aiStatus?.latestJob?.status ?? meeting.status} | Pipeline: {providerStatus.aiPipelineMode}
+              </p>
+              <p>
+                Runtime: {providerStatus.aiCoreConfigured ? "Railway queue configured" : "Inline fallback active"} | HF: {providerStatus.huggingFaceConfigured ? "configured" : "not configured"}
+              </p>
+              {aiStatus?.pending ? (
+                <p className="text-zinc-400">
+                  This view refreshes automatically while the meeting is still being processed.
+                </p>
+              ) : null}
+              {modelBadges.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {modelBadges.map((badge) => (
+                    <span
+                      key={badge}
+                      className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-200"
+                    >
+                      {badge}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6">
+            <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Artifacts</p>
+            <div className="mt-4 space-y-3">
+              {artifactRows.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-black/10 px-4 py-5 text-sm text-zinc-500">
+                  No artifacts have been materialized yet.
+                </div>
+              ) : (
+                artifactRows.map((artifact) => (
+                  <div
+                    key={artifact.artifact_type}
+                    className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-medium text-white">{artifactLabel(artifact.artifact_type)}</span>
+                      <span className="text-zinc-500">
+                        {artifact.status} | v{artifact.version ?? 1}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-zinc-400">
+                      {artifact.source_model ?? "artifact-ready"}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6">
             <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Privacy</p>
             <div className="mt-4 flex items-start gap-3">
               <ShieldCheck className="mt-1 h-5 w-5 text-[var(--brand-highlight)]" />
               <p className="text-sm leading-7 text-zinc-300">
-                This meeting keeps only the findings bundle. Transcript access is environment-bounded,
-                may be disabled in production, and is never the durable system of record.
+                Raw audio is short-lived, transcripts expire after {providerStatus.transcriptRetentionMinutes} minutes,
+                and only the structured meeting artifact remains durable.
               </p>
             </div>
           </div>
@@ -319,7 +483,7 @@ export function MeetingReview({
 
             <p className="mt-4 text-sm leading-7 text-zinc-300">
               {notionReady
-                ? "Export this findings bundle to the configured Notion destination."
+                ? "Export the canonical meeting artifact to the configured Notion destination."
                 : "Connect Notion and choose a destination before exporting findings there."}
             </p>
 
@@ -333,6 +497,15 @@ export function MeetingReview({
                 startContent={busyAction === "notion" ? undefined : <ExternalLink className="h-4 w-4" />}
               >
                 Export to Notion
+              </Button>
+              <Button
+                radius="full"
+                onPress={() => handleRegenerate("email_draft")}
+                isLoading={busyAction === "email_draft"}
+                className="brand-button-secondary h-11 font-semibold"
+                startContent={busyAction === "email_draft" ? undefined : <RefreshCcw className="h-4 w-4" />}
+              >
+                Regenerate email draft
               </Button>
             </div>
           </div>

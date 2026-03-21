@@ -1,5 +1,7 @@
 import type {
+  AiStatusSnapshot,
   IntegrationRecord,
+  MeetingArtifactRecord,
   MeetingExportRecord,
   MeetingFindingsRecord,
   TranscriptAvailability,
@@ -90,6 +92,77 @@ export const smokeMeetingExports: MeetingExportRecord[] = [
   },
 ];
 
+export const smokeMeetingArtifacts: MeetingArtifactRecord[] = [
+  {
+    id: "artifact-1",
+    meeting_id: smokeReadyMeeting.id,
+    user_id: "user-1",
+    artifact_type: "summary",
+    status: "ready",
+    payload_text: smokeReadyFindings.summary_full,
+    source_model: "gpt-4o-mini",
+    version: 1,
+  },
+  {
+    id: "artifact-2",
+    meeting_id: smokeReadyMeeting.id,
+    user_id: "user-1",
+    artifact_type: "action_items",
+    status: "ready",
+    payload_text: smokeReadyFindings.action_items_json?.join("\n"),
+    source_model: "gpt-4o-mini",
+    version: 1,
+  },
+  {
+    id: "artifact-3",
+    meeting_id: smokeReadyMeeting.id,
+    user_id: "user-1",
+    artifact_type: "email_draft",
+    status: "ready",
+    payload_text: smokeReadyFindings.email_draft,
+    source_model: "gpt-4o-mini",
+    version: 1,
+  },
+];
+
+export const smokeAiStatusReady: AiStatusSnapshot = {
+  meetingId: smokeReadyMeeting.id,
+  meetingStatus: "ready",
+  latestJob: {
+    id: "job-1",
+    meeting_id: smokeReadyMeeting.id,
+    user_id: "user-1",
+    job_type: "finalize",
+    status: "ready",
+    stage: "completed",
+    created_at: "2026-03-21T11:46:00.000Z",
+    updated_at: "2026-03-21T11:47:00.000Z",
+  },
+  artifacts: smokeMeetingArtifacts,
+  transcriptAsset: null,
+  rawAudioAsset: null,
+  pending: false,
+};
+
+export const smokeAiStatusProcessing: AiStatusSnapshot = {
+  meetingId: smokeProcessingMeeting.id,
+  meetingStatus: "analyzing",
+  latestJob: {
+    id: "job-2",
+    meeting_id: smokeProcessingMeeting.id,
+    user_id: "user-1",
+    job_type: "finalize",
+    status: "running",
+    stage: "extracting",
+    created_at: "2026-03-21T12:01:00.000Z",
+    updated_at: "2026-03-21T12:02:00.000Z",
+  },
+  artifacts: [],
+  transcriptAsset: null,
+  rawAudioAsset: null,
+  pending: true,
+};
+
 export const smokeTranscriptDisabled: TranscriptAvailability = {
   status: "disabled",
   downloadEnabled: false,
@@ -100,20 +173,35 @@ export const smokeTranscriptDisabled: TranscriptAvailability = {
 export const smokeWorkspaceOverview: WorkspaceOverview = {
   google: smokeGoogleReconnectRecord,
   notion: smokeNotionNeedsDestinationRecord,
-  meetings: [smokeProcessingMeeting, smokeReadyMeeting],
+  meetings: [
+    {
+      ...smokeProcessingMeeting,
+      status: "analyzing",
+    },
+    smokeReadyMeeting,
+  ],
   findingsByMeetingId: {
     [smokeReadyMeeting.id]: smokeReadyFindings,
   },
   exportsByMeetingId: {
     [smokeReadyMeeting.id]: smokeMeetingExports,
   },
+  aiStatusByMeetingId: {
+    [smokeReadyMeeting.id]: smokeAiStatusReady,
+    [smokeProcessingMeeting.id]: smokeAiStatusProcessing,
+  },
   providerStatus: {
     deepgramConfigured: true,
     openAiConfigured: true,
+    aiCoreConfigured: true,
+    huggingFaceConfigured: true,
     googleConfigured: true,
     googleRefreshConfigured: false,
     notionConfigured: true,
     transcriptDownloadsEnabled: false,
     transcriptStorageMode: "disabled",
+    transcriptRetentionMinutes: 60,
+    rawAssetRetentionHours: 24,
+    aiPipelineMode: "railway_remote",
   },
 };

@@ -2,9 +2,19 @@
 
 import { Button } from "@heroui/react";
 import { motion } from "framer-motion";
-import { ArrowRight, ExternalLink, FileSearch, NotebookPen, PlayCircle, Radio, Video } from "lucide-react";
+import {
+  ArrowRight,
+  ExternalLink,
+  FileSearch,
+  NotebookPen,
+  PlayCircle,
+  Radio,
+  RefreshCcw,
+  Video,
+} from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 
 import type { WorkspaceOverview } from "@/lib/workspace";
 import { formatWorkspaceDate, MEETING_SOURCE_LABELS, MEETING_STATUS_COPY } from "@/lib/workspace";
@@ -48,14 +58,29 @@ function dispatchCaptureTarget(detail: {
 }
 
 export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) {
+  const router = useRouter();
   const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    const hasPendingMeetings = overview.meetings.some((meeting) =>
+      ["queued", "transcribing", "analyzing", "processing"].includes(meeting.status)
+    );
+
+    if (!hasPendingMeetings) {
+      return;
+    }
+
+    const interval = window.setInterval(() => router.refresh(), 10000);
+    return () => window.clearInterval(interval);
+  }, [overview.meetings, router]);
 
   const meetings = useMemo(() => {
     const normalized = search.trim().toLowerCase();
 
     return overview.meetings.filter((meeting) => {
       const summary = overview.findingsByMeetingId[meeting.id]?.summary_short ?? "";
-      const haystack = `${meeting.title} ${summary} ${meeting.source_type} ${meeting.status}`.toLowerCase();
+      const aiStatus = overview.aiStatusByMeetingId[meeting.id]?.latestJob?.stage ?? "";
+      const haystack = `${meeting.title} ${summary} ${meeting.source_type} ${meeting.status} ${aiStatus}`.toLowerCase();
       return !normalized || haystack.includes(normalized);
     });
   }, [overview, search]);
@@ -73,19 +98,28 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
             <h1 className="text-3xl font-bold text-white">Scheduled and captured meetings</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
               This view combines Google meetings created in the workspace with direct browser-tab
-              captures. Findings, decisions, action items, and export history stay here. The
-              transcript never does.
+              captures. Findings, AI stages, artifact durability, and export history stay here.
             </p>
           </div>
-          <label className="block w-full max-w-sm">
-            <span className="mb-2 block text-sm text-zinc-400">Search meetings</span>
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by title, source, or summary"
-              className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition focus:border-[rgb(var(--brand-primary-rgb)/0.5)]"
-            />
-          </label>
+          <div className="flex w-full max-w-sm flex-col gap-3">
+            <label className="block">
+              <span className="mb-2 block text-sm text-zinc-400">Search meetings</span>
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search by title, source, summary, or AI stage"
+                className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition focus:border-[rgb(var(--brand-primary-rgb)/0.5)]"
+              />
+            </label>
+            <Button
+              radius="full"
+              onPress={() => router.refresh()}
+              className="brand-button-secondary h-10 font-semibold"
+              startContent={<RefreshCcw className="h-4 w-4" />}
+            >
+              Refresh library
+            </Button>
+          </div>
         </div>
       </motion.section>
 
@@ -104,6 +138,7 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
             const findings = overview.findingsByMeetingId[meeting.id];
             const exports = overview.exportsByMeetingId[meeting.id] ?? [];
             const status = MEETING_STATUS_COPY[meeting.status];
+            const aiStatus = overview.aiStatusByMeetingId[meeting.id];
             const meetUrl = readMetadataValue(meeting.session_metadata, "meet_url");
             const eventUrl = readMetadataValue(meeting.session_metadata, "event_url");
             const scheduledStart = readMetadataValue(meeting.session_metadata, "scheduled_start");
@@ -113,13 +148,16 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
                 ? formatWorkspaceDate(scheduledStart)
                 : formatWorkspaceDate(meeting.ended_at || meeting.created_at);
             const isScheduled = meeting.status === "scheduled" || meeting.status === "draft";
-            const isCapturing = meeting.status === "capturing";
-            const isReady = meeting.status === "ready";
+            const isCapturing = ["capturing", "queued", "transcribing", "analyzing", "processing"].includes(
+              meeting.status
+            );
+            const isReady = meeting.status === "ready" || meeting.status === "partial_success";
             const detailHref = `/dashboard/review/${meeting.id}`;
-
             const previewCopy = isReady
               ? findings?.summary_full ?? status.description
-              : status.description;
+              : aiStatus?.latestJob?.stage
+                ? `AI stage: ${aiStatus.latestJob.stage.replace(/_/g, " ")}`
+                : status.description;
 
             return (
               <motion.article
@@ -139,6 +177,11 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
                       <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-xs text-zinc-300">
                         {sourceLabel}
                       </span>
+                      {aiStatus?.latestJob?.stage ? (
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-300">
+                          {aiStatus.latestJob.stage.replace(/_/g, " ")}
+                        </span>
+                      ) : null}
                     </div>
                     <p className="mt-2 text-sm text-zinc-400">{primaryDate}</p>
                     <p className="mt-4 max-w-3xl text-sm leading-7 text-zinc-300">{previewCopy}</p>
@@ -148,6 +191,10 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
                     <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
                       <p className="font-medium text-white">{exports.length}</p>
                       <p className="mt-1 text-xs text-zinc-500">Exports logged</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+                      <p className="font-medium text-white">{aiStatus?.artifacts.length ?? 0}</p>
+                      <p className="mt-1 text-xs text-zinc-500">Artifacts</p>
                     </div>
                     {isReady || meeting.status === "failed" ? (
                       <Link href={detailHref}>
@@ -183,10 +230,12 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
                     </p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Follow-ups</p>
+                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Transcript / durability</p>
                     <p className="mt-3 flex items-center gap-2 text-sm text-zinc-300">
                       <NotebookPen className="h-4 w-4 text-[var(--brand-highlight)]" />
-                      {findings?.follow_ups_json?.[0] ?? (isScheduled ? "Join or capture when ready" : "Review next steps in the detail page")}
+                      {aiStatus?.transcriptAsset?.expires_at
+                        ? `Transcript TTL until ${formatWorkspaceDate(aiStatus.transcriptAsset.expires_at)}`
+                        : "Durable findings artifact only"}
                     </p>
                   </div>
                 </div>

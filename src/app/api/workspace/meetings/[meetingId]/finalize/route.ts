@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
+import {
+  queueMeetingProcessing,
+  uploadAudioAssetThroughServer,
+} from "@/lib/ai-pipeline";
 import { internalServerErrorResponse } from "@/lib/http";
-import { transcribeWithDeepgram } from "@/lib/deepgram";
-import { generateMeetingFindings } from "@/lib/workspace-ai";
-import { rememberEphemeralTranscript } from "@/lib/workspace-runtime";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient } from "@/lib/supabase-server";
-import type { WebMeetingRecord } from "@/lib/workspace";
 
 export const runtime = "nodejs";
 
@@ -43,84 +43,65 @@ export async function POST(
       return NextResponse.json({ error: "Meeting not found." }, { status: 404 });
     }
 
-    const meetingRecord = meeting as WebMeetingRecord;
     let sourceText = "";
+    let uploadedAsset:
+      | {
+          bucket: string;
+          path: string;
+          mimeType?: string | null;
+          byteSize?: number | null;
+          checksum?: string | null;
+        }
+      | null = null;
 
     if (contentType.includes("multipart/form-data")) {
       const formData = await request.formData();
       const audio = formData.get("audio");
 
       if (audio instanceof File && audio.size > 0) {
-        sourceText = await transcribeWithDeepgram(
-          audio,
-          typeof formData.get("mimeType") === "string"
-            ? String(formData.get("mimeType"))
-            : audio.type
-        );
+        uploadedAsset = await uploadAudioAssetThroughServer({
+          meetingId,
+          userId: user.id,
+          file: audio,
+          mimeType:
+            typeof formData.get("mimeType") === "string"
+              ? String(formData.get("mimeType"))
+              : audio.type,
+        });
       }
     } else {
       const body = (await request.json().catch(() => ({}))) as {
         sourceText?: string;
+        bucket?: string;
+        path?: string;
+        mimeType?: string;
+        byteSize?: number;
+        checksum?: string;
       };
       sourceText = body.sourceText?.trim() || "";
+      uploadedAsset =
+        body.bucket && body.path
+          ? {
+              bucket: body.bucket,
+              path: body.path,
+              mimeType: body.mimeType ?? null,
+              byteSize: typeof body.byteSize === "number" ? body.byteSize : null,
+              checksum: body.checksum ?? null,
+            }
+          : null;
     }
 
-    if (sourceText) {
-      rememberEphemeralTranscript(meetingId, sourceText);
-    }
-
-    await admin
-      .from("web_meetings")
-      .update({
-        status: "processing",
-        ended_at: new Date().toISOString(),
-      })
-      .eq("id", meetingId)
-      .eq("user_id", user.id);
-
-    const findings = await generateMeetingFindings(meetingRecord.title, sourceText);
-
-    const { error: findingsError } = await admin.from("meeting_findings").upsert(
-      {
-        meeting_id: meetingId,
-        user_id: user.id,
-        status: "ready",
-        summary_short: findings.summaryShort,
-        summary_full: findings.summaryFull,
-        executive_bullets_json: findings.executiveBullets,
-        decisions_json: findings.decisions,
-        action_items_json: findings.actionItems,
-        risks_json: findings.risks,
-        follow_ups_json: findings.followUps,
-        email_draft: findings.emailDraft,
-        source_model: findings.sourceModel,
-      },
-      {
-        onConflict: "meeting_id",
-      }
-    );
-
-    if (findingsError) {
-      throw findingsError;
-    }
-
-    const { error: meetingUpdateError } = await admin
-      .from("web_meetings")
-      .update({
-        status: "ready",
-        ended_at: new Date().toISOString(),
-      })
-      .eq("id", meetingId)
-      .eq("user_id", user.id);
-
-    if (meetingUpdateError) {
-      throw meetingUpdateError;
-    }
+    const pipeline = await queueMeetingProcessing({
+      meetingId,
+      userId: user.id,
+      audioAsset: uploadedAsset,
+      sourceText,
+    });
 
     return NextResponse.json({
       meetingId,
       redirectTo: `/dashboard/review/${meetingId}`,
-      sourceModel: findings.sourceModel,
+      ...pipeline,
     });
   } catch (error) {
     return internalServerErrorResponse(

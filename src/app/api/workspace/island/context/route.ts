@@ -37,7 +37,7 @@ export async function GET() {
         .from("web_meetings")
         .select("id,title")
         .eq("user_id", user.id)
-        .eq("status", "ready")
+        .in("status", ["ready", "partial_success"])
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
@@ -54,7 +54,7 @@ export async function GET() {
         .from("web_meetings")
         .select("id,title,status")
         .eq("user_id", user.id)
-        .in("status", ["capturing", "processing"])
+        .in("status", ["capturing", "queued", "transcribing", "analyzing", "processing"])
         .order("updated_at", { ascending: false })
         .limit(1)
         .maybeSingle(),

@@ -7,7 +7,11 @@ export type MeetingStatus =
   | "scheduled"
   | "draft"
   | "capturing"
+  | "queued"
+  | "transcribing"
+  | "analyzing"
   | "processing"
+  | "partial_success"
   | "ready"
   | "failed"
   | "canceled";
@@ -21,6 +25,25 @@ export type IntegrationStatus =
   | "error";
 
 export type TranscriptAvailabilityStatus = "available" | "expired" | "disabled";
+export type AiPipelineMode = "railway_remote" | "inline_legacy";
+export type AiJobType = "finalize" | "regenerate_artifact";
+export type AiJobStatus = "queued" | "running" | "partial_success" | "ready" | "failed";
+export type AiJobStage =
+  | "queued"
+  | "uploaded"
+  | "transcribing"
+  | "diarizing"
+  | "extracting"
+  | "assembling"
+  | "regenerating"
+  | "completed";
+export type MeetingAssetKind = "audio_raw" | "transcript_text";
+export type MeetingArtifactType =
+  | "canonical_json"
+  | "canonical_markdown"
+  | "summary"
+  | "action_items"
+  | "email_draft";
 
 export type NotionDestinationType = "page" | "database";
 
@@ -90,6 +113,80 @@ export interface MeetingExportRecord {
   created_at?: string | null;
 }
 
+export interface AiJobRecord {
+  id: string;
+  meeting_id: string;
+  user_id: string;
+  job_type: AiJobType;
+  artifact_type?: MeetingArtifactType | null;
+  status: AiJobStatus;
+  stage: AiJobStage;
+  attempts?: number | null;
+  provider_metadata?: Record<string, unknown> | null;
+  error?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface MeetingAssetRecord {
+  id: string;
+  meeting_id: string;
+  user_id: string;
+  asset_kind: MeetingAssetKind;
+  bucket: string;
+  path: string;
+  mime_type?: string | null;
+  byte_size?: number | null;
+  checksum?: string | null;
+  status: string;
+  expires_at?: string | null;
+  created_by_job_id?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface MeetingArtifactRecord {
+  id: string;
+  meeting_id: string;
+  user_id: string;
+  artifact_type: MeetingArtifactType;
+  status: string;
+  payload_json?: Record<string, unknown> | null;
+  payload_text?: string | null;
+  source_model?: string | null;
+  version?: number | null;
+  metadata?: Record<string, unknown> | null;
+  created_by_job_id?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface SpeakerSegmentRecord {
+  id: string;
+  meeting_id: string;
+  user_id: string;
+  speaker_label: string;
+  start_ms: number;
+  end_ms: number;
+  text_snippet?: string | null;
+  confidence?: number | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+}
+
+export interface AiStatusSnapshot {
+  meetingId: string;
+  meetingStatus: MeetingStatus;
+  latestJob: AiJobRecord | null;
+  artifacts: MeetingArtifactRecord[];
+  transcriptAsset: MeetingAssetRecord | null;
+  rawAudioAsset: MeetingAssetRecord | null;
+  pending: boolean;
+}
+
 export interface TranscriptAvailability {
   status: TranscriptAvailabilityStatus;
   message: string;
@@ -103,14 +200,20 @@ export interface WorkspaceOverview {
   meetings: WebMeetingRecord[];
   findingsByMeetingId: Record<string, MeetingFindingsRecord | undefined>;
   exportsByMeetingId: Record<string, MeetingExportRecord[]>;
+  aiStatusByMeetingId: Record<string, AiStatusSnapshot | undefined>;
   providerStatus: {
     deepgramConfigured: boolean;
     openAiConfigured: boolean;
+    aiCoreConfigured: boolean;
+    huggingFaceConfigured: boolean;
     googleConfigured: boolean;
     googleRefreshConfigured: boolean;
     notionConfigured: boolean;
     transcriptDownloadsEnabled: boolean;
     transcriptStorageMode: "memory" | "disabled";
+    transcriptRetentionMinutes: number;
+    rawAssetRetentionHours: number;
+    aiPipelineMode: AiPipelineMode;
   };
 }
 
@@ -139,10 +242,30 @@ export const MEETING_STATUS_COPY: Record<
     description: "The browser session is currently live.",
     tone: "trust",
   },
+  queued: {
+    label: "Queued",
+    description: "Audio upload is complete and the AI pipeline is queued.",
+    tone: "warm",
+  },
+  transcribing: {
+    label: "Transcribing",
+    description: "Audio is being converted into text.",
+    tone: "warm",
+  },
+  analyzing: {
+    label: "Analyzing",
+    description: "The copilot is extracting decisions, tasks, and summaries.",
+    tone: "warm",
+  },
   processing: {
     label: "Processing",
     description: "Transcript is being converted into findings.",
     tone: "warm",
+  },
+  partial_success: {
+    label: "Partial",
+    description: "Some AI artifacts are ready, while others still need regeneration.",
+    tone: "danger",
   },
   ready: {
     label: "Ready",
