@@ -62,6 +62,15 @@ function artifactLabel(artifactType: MeetingArtifactRecord["artifact_type"]) {
   }
 }
 
+function getMetadataRecord(value: unknown) {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function getMetadataString(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
 export function MeetingReview({
   meeting,
   findings,
@@ -130,6 +139,18 @@ export function MeetingReview({
         )
       ) as string[],
     [artifactRows, findings?.source_model]
+  );
+  const latestJobMetadata = useMemo(
+    () => getMetadataRecord(aiStatus?.latestJob?.provider_metadata),
+    [aiStatus?.latestJob?.provider_metadata]
+  );
+  const transcriptionMetadata = useMemo(
+    () => getMetadataRecord(latestJobMetadata.transcription),
+    [latestJobMetadata]
+  );
+  const findingsMetadata = useMemo(
+    () => getMetadataRecord(latestJobMetadata.findings),
+    [latestJobMetadata]
   );
 
   useEffect(() => {
@@ -249,7 +270,7 @@ export function MeetingReview({
             <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Review</p>
             <h1 className="mt-1 text-3xl font-bold text-white">{meeting.title}</h1>
             <p className="mt-2 text-sm text-zinc-400">
-              {MEETING_SOURCE_LABELS[meeting.source_type]} | {formatWorkspaceDate(meeting.created_at)} | durable artifact bundle only
+              {MEETING_SOURCE_LABELS[meeting.source_type]} | {formatWorkspaceDate(meeting.created_at)} | ephemeral transcript, durable artifact bundle
             </p>
             <p className="mt-4 text-sm leading-7 text-zinc-300">
               {structured.summaryShort}
@@ -383,7 +404,7 @@ export function MeetingReview({
           <div className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">AI pipeline</p>
+                <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Transcription pipeline</p>
                 <h2 className="mt-1 text-xl font-semibold text-white">
                   {aiStatus?.latestJob ? aiStatus.latestJob.stage.replace(/_/g, " ") : "Awaiting run"}
                 </h2>
@@ -395,11 +416,21 @@ export function MeetingReview({
                 Status: {aiStatus?.latestJob?.status ?? meeting.status} | Pipeline: {providerStatus.aiPipelineMode}
               </p>
               <p>
-                Runtime: {providerStatus.aiCoreConfigured ? "Railway queue configured" : "Inline fallback active"} | HF: {providerStatus.huggingFaceConfigured ? "configured" : "not configured"}
+                Runtime: {providerStatus.aiCoreConfigured ? "Railway queue configured" : "Inline fallback active"} | Deepgram: {providerStatus.deepgramConfigured ? "configured" : "not configured"}
+              </p>
+              <p>
+                Transcription: {getMetadataString(transcriptionMetadata, "status") ?? "awaiting"} | Provider:{" "}
+                {getMetadataString(transcriptionMetadata, "sourceModel") ??
+                  (providerStatus.deepgramConfigured ? "deepgram" : "not configured")}
+              </p>
+              <p>
+                Findings: {getMetadataString(findingsMetadata, "status") ?? "awaiting"} | Provider:{" "}
+                {getMetadataString(findingsMetadata, "sourceModel") ??
+                  (providerStatus.openAiConfigured ? "openai downstream" : "not configured")}
               </p>
               {aiStatus?.pending ? (
                 <p className="text-zinc-400">
-                  This view refreshes automatically while the meeting is still being processed.
+                  This view refreshes automatically while transcription and findings are still running.
                 </p>
               ) : null}
               {modelBadges.length > 0 ? (
@@ -450,8 +481,8 @@ export function MeetingReview({
             <div className="mt-4 flex items-start gap-3">
               <ShieldCheck className="mt-1 h-5 w-5 text-[var(--brand-highlight)]" />
               <p className="text-sm leading-7 text-zinc-300">
-                Raw audio is short-lived, transcripts expire after {providerStatus.transcriptRetentionMinutes} minutes,
-                and only the structured meeting artifact remains durable.
+                Raw audio is short-lived for {providerStatus.rawAssetRetentionHours} hours, transcripts expire after{" "}
+                {providerStatus.transcriptRetentionMinutes} minutes, and only the structured meeting artifact remains durable.
               </p>
             </div>
           </div>

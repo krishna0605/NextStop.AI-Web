@@ -26,12 +26,13 @@ export type IntegrationStatus =
 
 export type TranscriptAvailabilityStatus = "available" | "expired" | "disabled";
 export type AiPipelineMode = "railway_remote" | "inline_legacy";
-export type AiJobType = "finalize" | "regenerate_artifact";
+export type AiJobType = "transcribe" | "finalize" | "regenerate_artifact";
 export type AiJobStatus = "queued" | "running" | "partial_success" | "ready" | "failed";
 export type AiJobStage =
   | "queued"
   | "uploaded"
   | "transcribing"
+  | "normalizing"
   | "diarizing"
   | "extracting"
   | "assembling"
@@ -244,7 +245,7 @@ export const MEETING_STATUS_COPY: Record<
   },
   queued: {
     label: "Queued",
-    description: "Audio upload is complete and the AI pipeline is queued.",
+    description: "Audio upload is complete and the transcription worker is queued.",
     tone: "warm",
   },
   transcribing: {
@@ -254,12 +255,12 @@ export const MEETING_STATUS_COPY: Record<
   },
   analyzing: {
     label: "Analyzing",
-    description: "The copilot is extracting decisions, tasks, and summaries.",
+    description: "Structured findings are being generated from the stored transcript.",
     tone: "warm",
   },
   processing: {
     label: "Processing",
-    description: "Transcript is being converted into findings.",
+    description: "Transcript assets are being normalized and handed to downstream findings.",
     tone: "warm",
   },
   partial_success: {

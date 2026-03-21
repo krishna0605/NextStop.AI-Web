@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start:api": "tsx src/server.ts",
+    "start:worker": "tsx src/worker.ts",
+    "start:cleanup": "tsx src/cleanup.ts",
     "dev:api": "tsx src/server.ts",
     "dev:worker": "tsx src/worker.ts",
     "dev:cleanup": "tsx src/cleanup.ts"

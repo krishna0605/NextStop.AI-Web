@@ -106,7 +106,7 @@ export function getTranscriptRetentionMinutes() {
     return Math.min(configured, 24 * 60);
   }
 
-  return 30;
+  return 60;
 }
 
 export function allowProductionMemoryTranscriptDownloads() {

@@ -98,7 +98,8 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
             <h1 className="text-3xl font-bold text-white">Scheduled and captured meetings</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
               This view combines Google meetings created in the workspace with direct browser-tab
-              captures. Findings, AI stages, artifact durability, and export history stay here.
+              captures. Transcription stages, downstream findings, artifact durability, and export
+              history stay here.
             </p>
           </div>
           <div className="flex w-full max-w-sm flex-col gap-3">
@@ -107,7 +108,7 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search by title, source, summary, or AI stage"
+                placeholder="Search by title, source, summary, or transcription stage"
                 className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition focus:border-[rgb(var(--brand-primary-rgb)/0.5)]"
               />
             </label>
@@ -156,7 +157,7 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
             const previewCopy = isReady
               ? findings?.summary_full ?? status.description
               : aiStatus?.latestJob?.stage
-                ? `AI stage: ${aiStatus.latestJob.stage.replace(/_/g, " ")}`
+                ? `Pipeline stage: ${aiStatus.latestJob.stage.replace(/_/g, " ")}`
                 : status.description;
 
             return (

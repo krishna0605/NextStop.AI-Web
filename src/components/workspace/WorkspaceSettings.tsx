@@ -58,8 +58,8 @@ export function WorkspaceSettings({
       title: "AI processing",
       description:
         providerStatus.aiCoreConfigured
-          ? `Railway queue is configured in ${providerStatus.aiPipelineMode} mode and Hugging Face inference is ${providerStatus.huggingFaceConfigured ? "ready" : "still pending"}.`
-          : "The web app will use the inline fallback path until the remote AI core is configured.",
+          ? `Railway queue is configured in ${providerStatus.aiPipelineMode} mode, Deepgram transcription is ${providerStatus.deepgramConfigured ? "ready" : "still pending"}, and downstream summary generation stays server-managed.`
+          : "The web app will use the inline fallback path until the remote transcription worker is configured.",
       icon: PlugZap,
       href: "#ai-pipeline",
     },
@@ -212,10 +212,11 @@ export function WorkspaceSettings({
               <h2 className="text-xl font-semibold text-white">AI pipeline boundary</h2>
               <p className="mt-3 text-sm leading-7 text-zinc-400">
                 Mode: {providerStatus.aiPipelineMode}. AI core is {providerStatus.aiCoreConfigured ? "configured" : "not configured"}.
-                OpenAI fallback is {providerStatus.openAiConfigured ? "available" : "unavailable"}, and Deepgram ASR is {providerStatus.deepgramConfigured ? "available" : "unavailable"}.
+                Deepgram ASR is {providerStatus.deepgramConfigured ? "available" : "unavailable"}, and OpenAI stays{" "}
+                {providerStatus.openAiConfigured ? "available" : "unavailable"} for downstream summaries or regeneration only.
               </p>
               <p className="mt-3 text-sm leading-7 text-zinc-400">
-                Hugging Face inference endpoints are {providerStatus.huggingFaceConfigured ? "configured" : "not configured"}.
+                Hugging Face endpoints are {providerStatus.huggingFaceConfigured ? "configured" : "not configured"} for future diarization or specialty inference.
                 Model routing remains server-managed so the workspace stays predictable for users.
               </p>
             </div>
@@ -248,7 +249,7 @@ export function WorkspaceSettings({
               <h2 className="text-xl font-semibold text-white">Operational path</h2>
               <p className="mt-3 text-sm leading-7 text-zinc-400">
                 Recommended deployment keeps the web app on Vercel, data on Supabase, orchestration on Railway,
-                and heavy inference on Hugging Face. If Railway is unavailable, the app can still fall back inline.
+                and primary transcription on Deepgram. If Railway is unavailable, the app can still fall back inline.
               </p>
             </div>
           </div>

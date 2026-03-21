@@ -132,9 +132,19 @@ export const smokeAiStatusReady: AiStatusSnapshot = {
     id: "job-1",
     meeting_id: smokeReadyMeeting.id,
     user_id: "user-1",
-    job_type: "finalize",
+    job_type: "transcribe",
     status: "ready",
     stage: "completed",
+    provider_metadata: {
+      transcription: {
+        status: "ready",
+        sourceModel: "deepgram:nova-2",
+      },
+      findings: {
+        status: "ready",
+        sourceModel: "gpt-4o-mini",
+      },
+    },
     created_at: "2026-03-21T11:46:00.000Z",
     updated_at: "2026-03-21T11:47:00.000Z",
   },
@@ -151,9 +161,18 @@ export const smokeAiStatusProcessing: AiStatusSnapshot = {
     id: "job-2",
     meeting_id: smokeProcessingMeeting.id,
     user_id: "user-1",
-    job_type: "finalize",
+    job_type: "transcribe",
     status: "running",
-    stage: "extracting",
+    stage: "normalizing",
+    provider_metadata: {
+      transcription: {
+        status: "normalizing",
+        sourceModel: "deepgram:nova-2",
+      },
+      findings: {
+        status: "queued",
+      },
+    },
     created_at: "2026-03-21T12:01:00.000Z",
     updated_at: "2026-03-21T12:02:00.000Z",
   },
@@ -176,7 +195,7 @@ export const smokeWorkspaceOverview: WorkspaceOverview = {
   meetings: [
     {
       ...smokeProcessingMeeting,
-      status: "analyzing",
+      status: "processing",
     },
     smokeReadyMeeting,
   ],

@@ -285,7 +285,9 @@ export function WorkspaceCaptureIsland() {
       }),
     });
     const payload = (await response.json()) as { error?: string };
-    if (!response.ok) throw new Error(payload.error ?? "Unable to queue the meeting for AI processing.");
+    if (!response.ok) {
+      throw new Error(payload.error ?? "Unable to queue the meeting for transcription.");
+    }
   }
 
   async function resetToIdle(nextNotice?: string | null) {
@@ -376,7 +378,9 @@ export function WorkspaceCaptureIsland() {
         recorder.stop();
       });
       await uploadFinalizeBlob(activeMeeting, audioBlob);
-      await resetToIdle(`AI processing started for "${activeMeeting.title}". Review the Library for live status and artifacts.`);
+      await resetToIdle(
+        `Transcription started for "${activeMeeting.title}". Review the Library for live status and findings.`
+      );
     } catch (caughtError) {
       const audioBlob = recordedChunksRef.current.length > 0 ? new Blob(recordedChunksRef.current, { type: mediaRecorderRef.current?.mimeType || "audio/webm" }) : null;
       if (audioBlob && audioBlob.size > 0) {
@@ -388,7 +392,7 @@ export function WorkspaceCaptureIsland() {
       setNotice(
         retryableFinalizeRef.current
           ? "We kept the recorded audio in this browser tab. Retry finalize or discard the failed session."
-          : "The session ended, but finalization did not complete. Check Library, then start a new capture if needed."
+          : "The session ended, but transcription handoff did not complete. Check Library, then start a new capture if needed."
       );
       router.refresh();
     }
@@ -401,11 +405,11 @@ export function WorkspaceCaptureIsland() {
     }
     setCaptureState("processing");
     setError(null);
-    setNotice("Retrying finalization for the captured audio...");
+    setNotice("Retrying the transcription handoff for the captured audio...");
     try {
       const retryPayload = retryableFinalizeRef.current;
       await uploadFinalizeBlob(retryPayload.meeting, retryPayload.blob);
-      await resetToIdle(`AI processing restarted for "${retryPayload.meeting.title}".`);
+      await resetToIdle(`Transcription restarted for "${retryPayload.meeting.title}".`);
     } catch (caughtError) {
       setCaptureState("failed");
       setError(caughtError instanceof Error ? caughtError.message : "Unable to retry the meeting finalization.");
@@ -571,7 +575,7 @@ export function WorkspaceCaptureIsland() {
                 ) : captureState === "processing" ? (
                   <>
                     <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                    <span>Uploading and queueing AI</span>
+                    <span>Uploading and queueing transcription</span>
                   </>
                 ) : context.googleConnected ? (
                   <>

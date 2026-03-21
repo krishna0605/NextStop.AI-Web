@@ -18,7 +18,11 @@ import {
   getTranscriptRetentionMinutes,
   isTranscriptDownloadEnabled,
 } from "@/lib/env";
-import { transcribeWithDeepgram } from "@/lib/deepgram";
+import {
+  type DeepgramParagraph,
+  type DeepgramTranscriptionResult,
+  transcribeWithDeepgramResult,
+} from "@/lib/deepgram";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { generateMeetingFindings } from "@/lib/workspace-ai";
 import type {
@@ -55,6 +59,24 @@ type QueueArtifactRegenerationArgs = {
 };
 
 const ensuredBuckets = new Set<string>();
+
+type TranscriptMaterializationResult = {
+  transcriptText: string;
+  transcriptAsset: {
+    bucket: string;
+    path: string;
+  };
+  speakerSegments: SpeakerSegmentRecord[];
+  transcription: {
+    provider: string;
+    sourceModel: string;
+    requestId: string | null;
+    language: string | null;
+    confidence: number | null;
+    durationSeconds: number | null;
+    providerMetadata: Record<string, unknown>;
+  };
+};
 
 function sanitizeFilename(filename: string) {
   return filename.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-");
@@ -126,6 +148,47 @@ function splitTranscriptIntoSegments(transcriptText: string) {
     previous.text_snippet = `${previous.text_snippet} ${sentence}`.trim();
     return segments;
   }, []);
+}
+
+function cloneRecord(value: Record<string, unknown> | null | undefined) {
+  if (!value) {
+    return {};
+  }
+
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
+function normalizeTranscriptText(transcriptText: string) {
+  return transcriptText
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function createSpeakerSegmentsFromParagraphs(
+  paragraphs: DeepgramParagraph[],
+  fallbackTranscript: string
+) {
+  if (paragraphs.length === 0) {
+    return splitTranscriptIntoSegments(fallbackTranscript);
+  }
+
+  return paragraphs.map<SpeakerSegmentRecord>((paragraph, index) => ({
+    id: `segment-${index}`,
+    meeting_id: "",
+    user_id: "",
+    speaker_label: paragraph.speakerLabel ?? `Speaker ${index + 1}`,
+    start_ms: paragraph.startMs,
+    end_ms: Math.max(paragraph.endMs, paragraph.startMs + 1000),
+    text_snippet: paragraph.text,
+    confidence: paragraph.confidence ?? 0.5,
+    metadata: {
+      inferred: paragraph.speakerLabel == null,
+      source: "deepgram",
+      paragraphIndex: paragraph.index,
+    },
+  }));
 }
 
 function getAssetExpiryIso(kind: MeetingAssetKind) {
@@ -221,6 +284,7 @@ async function uploadTextAsset(args: {
   userId: string;
   content: string;
   createdByJobId: string;
+  metadata?: Record<string, unknown>;
 }) {
   const admin = createAdminClient();
   const bucket = getMeetingTranscriptBucket();
@@ -249,6 +313,7 @@ async function uploadTextAsset(args: {
     byteSize: Buffer.byteLength(args.content, "utf8"),
     checksum: createHash("sha256").update(args.content).digest("hex"),
     createdByJobId: args.createdByJobId,
+    metadata: args.metadata,
   });
 
   return { bucket, path };
@@ -370,6 +435,17 @@ async function readAudioAssetAsFile(asset: MeetingAssetRecord) {
   });
 }
 
+async function readTextAssetByLocation(bucket: string, path: string) {
+  const admin = createAdminClient();
+  const { data, error } = await admin.storage.from(bucket).download(path);
+
+  if (error) {
+    throw error;
+  }
+
+  return data.text();
+}
+
 async function upsertMeetingFindings(
   meetingId: string,
   userId: string,
@@ -486,6 +562,69 @@ async function upsertMeetingArtifact(args: {
   }
 }
 
+async function materializeTranscript(args: {
+  meetingId: string;
+  userId: string;
+  jobId: string;
+  transcriptText: string;
+  deepgramResult?: DeepgramTranscriptionResult | null;
+}) {
+  const transcriptText = normalizeTranscriptText(args.transcriptText);
+
+  if (!transcriptText) {
+    throw new Error("Transcript text is empty.");
+  }
+
+  const speakerSegments = createSpeakerSegmentsFromParagraphs(
+    args.deepgramResult?.paragraphs ?? [],
+    transcriptText
+  ).map((segment) => ({
+    ...segment,
+    meeting_id: args.meetingId,
+    user_id: args.userId,
+  }));
+
+  const transcriptAsset = await uploadTextAsset({
+    meetingId: args.meetingId,
+    userId: args.userId,
+    content: transcriptText,
+    createdByJobId: args.jobId,
+    metadata: {
+      provider: args.deepgramResult?.provider ?? "manual",
+      sourceModel: args.deepgramResult?.sourceModel ?? "manual:seed-text",
+      requestId: args.deepgramResult?.requestId ?? null,
+      language: args.deepgramResult?.language ?? null,
+      confidence: args.deepgramResult?.confidence ?? null,
+      durationSeconds: args.deepgramResult?.durationSeconds ?? null,
+      paragraphCount: args.deepgramResult?.paragraphs.length ?? speakerSegments.length,
+      normalizedSegmentCount: speakerSegments.length,
+      source: args.deepgramResult ? "deepgram_asr" : "source_text",
+      ...cloneRecord(args.deepgramResult?.providerMetadata ?? null),
+    },
+  });
+
+  await replaceSpeakerSegments({
+    meetingId: args.meetingId,
+    userId: args.userId,
+    segments: speakerSegments,
+  });
+
+  return {
+    transcriptText,
+    transcriptAsset,
+    speakerSegments,
+    transcription: {
+      provider: args.deepgramResult?.provider ?? "manual",
+      sourceModel: args.deepgramResult?.sourceModel ?? "manual:seed-text",
+      requestId: args.deepgramResult?.requestId ?? null,
+      language: args.deepgramResult?.language ?? null,
+      confidence: args.deepgramResult?.confidence ?? null,
+      durationSeconds: args.deepgramResult?.durationSeconds ?? null,
+      providerMetadata: cloneRecord(args.deepgramResult?.providerMetadata ?? null),
+    },
+  } satisfies TranscriptMaterializationResult;
+}
+
 async function materializeArtifacts(args: {
   meeting: WebMeetingRecord;
   userId: string;
@@ -566,58 +705,99 @@ async function materializeArtifacts(args: {
   ]);
 }
 
-async function runInlineFinalizeJob(job: AiJobRecord) {
+async function runInlineTranscriptionJob(job: AiJobRecord) {
   const meeting = await fetchMeeting(job.meeting_id, job.user_id);
 
   if (!meeting) {
     throw new Error("Meeting not found for AI job.");
   }
 
+  const providerMetadata = cloneRecord(job.provider_metadata);
+  providerMetadata.execution_mode = "inline_legacy";
+  providerMetadata.pipeline = {
+    primaryTranscriptionProvider: "deepgram",
+    downstreamFindingsProvider: process.env.OPENAI_API_KEY ? "openai" : "unconfigured",
+    transcriptSource: "storage_asset",
+  };
+
   await updateAiJob(job.id, {
     status: "running",
     stage: "transcribing",
     attempts: (job.attempts ?? 0) + 1,
     started_at: new Date().toISOString(),
-    provider_metadata: {
-      ...(job.provider_metadata ?? {}),
-      execution_mode: "inline_legacy",
-    },
+    provider_metadata: providerMetadata,
   });
   await updateMeetingStatus(job.meeting_id, job.user_id, "transcribing");
 
-  const providerMetadata = (job.provider_metadata ?? {}) as Record<string, unknown>;
   let transcriptText =
     typeof providerMetadata.sourceText === "string" ? providerMetadata.sourceText.trim() : "";
-
   const rawAudioAsset = await fetchLatestAudioAsset(job.meeting_id, job.user_id);
+  let deepgramResult: DeepgramTranscriptionResult | null = null;
 
   if (!transcriptText && rawAudioAsset) {
     const audioFile = await readAudioAssetAsFile(rawAudioAsset);
-    transcriptText = await transcribeWithDeepgram(audioFile, rawAudioAsset.mime_type ?? undefined);
+    deepgramResult = await transcribeWithDeepgramResult(
+      audioFile,
+      rawAudioAsset.mime_type ?? undefined
+    );
+    transcriptText = deepgramResult.transcript;
   }
 
-  const inferredSegments = splitTranscriptIntoSegments(transcriptText).map((segment) => ({
-    ...segment,
-    meeting_id: job.meeting_id,
-    user_id: job.user_id,
-  }));
+  transcriptText = normalizeTranscriptText(transcriptText);
 
-  if (transcriptText) {
-    await uploadTextAsset({
-      meetingId: job.meeting_id,
-      userId: job.user_id,
-      content: transcriptText,
-      createdByJobId: job.id,
-    });
+  if (!transcriptText) {
+    throw new Error("No transcript text was available to process.");
   }
+
+  providerMetadata.transcription = {
+    status: "normalizing",
+    provider: deepgramResult?.provider ?? "manual",
+    sourceModel: deepgramResult?.sourceModel ?? "manual:seed-text",
+    requestId: deepgramResult?.requestId ?? null,
+    language: deepgramResult?.language ?? null,
+    confidence: deepgramResult?.confidence ?? null,
+    durationSeconds: deepgramResult?.durationSeconds ?? null,
+  };
+
+  await updateAiJob(job.id, {
+    status: "running",
+    stage: "normalizing",
+    provider_metadata: providerMetadata,
+  });
+  await updateMeetingStatus(job.meeting_id, job.user_id, "processing");
+
+  const materializedTranscript = await materializeTranscript({
+    meetingId: job.meeting_id,
+    userId: job.user_id,
+    jobId: job.id,
+    transcriptText,
+    deepgramResult,
+  });
+
+  providerMetadata.transcription = {
+    ...materializedTranscript.transcription,
+    status: "ready",
+    transcriptAsset: materializedTranscript.transcriptAsset,
+    normalizedSegmentCount: materializedTranscript.speakerSegments.length,
+    storedAt: new Date().toISOString(),
+  };
+  providerMetadata.findings = {
+    status: "queued",
+    transcriptSource: "storage_asset",
+  };
 
   await updateAiJob(job.id, {
     status: "running",
     stage: "extracting",
+    provider_metadata: providerMetadata,
   });
   await updateMeetingStatus(job.meeting_id, job.user_id, "analyzing");
 
-  const findingsPayload = await generateMeetingFindings(meeting.title, transcriptText);
+  const storedTranscript = await readTextAssetByLocation(
+    materializedTranscript.transcriptAsset.bucket,
+    materializedTranscript.transcriptAsset.path
+  );
+  const findingsPayload = await generateMeetingFindings(meeting.title, storedTranscript);
   const findingsRecord: MeetingFindingsRecord = {
     id: `findings-${job.id}`,
     meeting_id: meeting.id,
@@ -635,23 +815,25 @@ async function runInlineFinalizeJob(job: AiJobRecord) {
   };
 
   await upsertMeetingFindings(job.meeting_id, job.user_id, findingsPayload);
-  await replaceSpeakerSegments({
-    meetingId: job.meeting_id,
-    userId: job.user_id,
-    segments: inferredSegments,
-  });
+  providerMetadata.findings = {
+    status: "ready",
+    transcriptSource: "storage_asset",
+    sourceModel: findingsPayload.sourceModel,
+    generatedAt: new Date().toISOString(),
+  };
 
   await updateAiJob(job.id, {
     status: "running",
     stage: "assembling",
+    provider_metadata: providerMetadata,
   });
 
   await materializeArtifacts({
     meeting,
     userId: job.user_id,
     findings: findingsRecord,
-    transcriptText,
-    speakerSegments: inferredSegments,
+    transcriptText: storedTranscript,
+    speakerSegments: materializedTranscript.speakerSegments,
     sourceModel: findingsPayload.sourceModel,
     jobId: job.id,
   });
@@ -662,9 +844,8 @@ async function runInlineFinalizeJob(job: AiJobRecord) {
     finished_at: new Date().toISOString(),
     error: null,
     provider_metadata: {
-      ...(job.provider_metadata ?? {}),
-      execution_mode: "inline_legacy",
-      transcriptAvailable: Boolean(transcriptText),
+      ...providerMetadata,
+      transcriptAvailable: true,
       sourceModel: findingsPayload.sourceModel,
     },
   });
@@ -852,7 +1033,10 @@ async function runInlineRegenerationJob(job: AiJobRecord) {
   });
 }
 
-async function queueRemoteJob(path: "/jobs/finalize" | "/jobs/regenerate", body: Record<string, unknown>) {
+async function queueRemoteJob(
+  path: "/jobs/transcribe" | "/jobs/finalize" | "/jobs/regenerate",
+  body: Record<string, unknown>
+) {
   const apiUrl = getAiCoreApiUrl();
   const secret = getAiCoreSharedSecret();
 
@@ -948,12 +1132,17 @@ export async function queueMeetingProcessing(args: QueueMeetingProcessingArgs) {
     providerMetadata.sourceText = args.sourceText.trim();
   }
 
+  providerMetadata.pipeline = {
+    primaryTranscriptionProvider: "deepgram",
+    downstreamFindingsProvider: process.env.OPENAI_API_KEY ? "openai" : "unconfigured",
+  };
+
   const { data: insertedJob, error: jobError } = await admin
     .from("ai_jobs")
     .insert({
       meeting_id: args.meetingId,
       user_id: args.userId,
-      job_type: "finalize",
+      job_type: "transcribe",
       status: "queued",
       stage: args.audioAsset ? "uploaded" : "queued",
       provider_metadata: providerMetadata,
@@ -985,7 +1174,7 @@ export async function queueMeetingProcessing(args: QueueMeetingProcessingArgs) {
 
   if (getAiPipelineMode() === "railway_remote") {
     try {
-      await queueRemoteJob("/jobs/finalize", {
+      await queueRemoteJob("/jobs/transcribe", {
         jobId: job.id,
         meetingId: args.meetingId,
         userId: args.userId,
@@ -1002,7 +1191,7 @@ export async function queueMeetingProcessing(args: QueueMeetingProcessingArgs) {
   }
 
   try {
-    await runInlineFinalizeJob(job);
+    await runInlineTranscriptionJob(job);
   } catch (error) {
     await updateAiJob(job.id, {
       status: "failed",
