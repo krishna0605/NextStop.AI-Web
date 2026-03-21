@@ -8,7 +8,14 @@ import {
 } from "@/lib/env";
 
 describe("env readiness", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("falls back to localhost app url when unset", () => {
+    vi.stubEnv("APP_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "");
+
     expect(getAppUrl()).toBe("http://localhost:3000");
   });
 
@@ -28,6 +35,8 @@ describe("env readiness", () => {
 
   it("returns readiness details and missing env summary", () => {
     vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://example.supabase.co");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "anon-key");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
