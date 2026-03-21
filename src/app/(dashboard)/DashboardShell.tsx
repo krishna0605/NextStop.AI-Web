@@ -17,7 +17,12 @@ import type { User } from "@supabase/supabase-js";
 
 import { BrandLogo } from "@/components/BrandLogo";
 import { WorkspaceCaptureIsland } from "@/components/workspace/WorkspaceCaptureIsland";
-import type { ProfileRecord } from "@/lib/billing";
+import {
+  normalizeAccessState,
+  normalizePlanCode,
+  PLAN_DETAILS,
+  type ProfileRecord,
+} from "@/lib/billing";
 import { createClient } from "@/lib/supabase-browser";
 
 const navItems = [
@@ -60,6 +65,16 @@ export function DashboardShell({
     .join("")
     .toUpperCase()
     .slice(0, 2);
+  const planCode = normalizePlanCode(profile);
+  const accessState = normalizeAccessState(profile, planCode);
+  const planLabel =
+    planCode === "pro_monthly"
+      ? "Pro"
+      : planCode === "pro_trial"
+        ? "Trial"
+        : accessState === "active"
+          ? PLAN_DETAILS[planCode].label
+          : "Free";
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -157,9 +172,14 @@ export function DashboardShell({
               </div>
             )}
             <div className="flex-1 overflow-hidden">
-              <p className="truncate text-sm font-medium text-white">
-                {displayName}
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="truncate text-sm font-medium text-white">
+                  {displayName}
+                </p>
+                <span className="shrink-0 rounded-full border border-[rgb(var(--brand-primary-rgb)/0.28)] bg-[rgb(var(--brand-primary-rgb)/0.14)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--brand-highlight)]">
+                  {planLabel}
+                </span>
+              </div>
               <p className="truncate text-xs text-zinc-500">{user.email}</p>
             </div>
             <button

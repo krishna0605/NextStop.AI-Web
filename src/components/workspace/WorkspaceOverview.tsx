@@ -6,45 +6,15 @@ import {
   ArrowRight,
   CalendarDays,
   CreditCard,
-  ExternalLink,
-  HardDrive,
-  Mic,
+  CheckCircle2,
   NotebookTabs,
-  PlugZap,
-  Presentation,
-  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo, useState } from "react";
 
 import type { AccessState, PlanCode } from "@/lib/billing";
 import { PLAN_DETAILS } from "@/lib/billing";
-import {
-  formatWorkspaceDate,
-  MEETING_SOURCE_LABELS,
-  MEETING_STATUS_COPY,
-  type WorkspaceOverview as WorkspaceOverviewData,
-} from "@/lib/workspace";
-
-type BrowserCapabilities = {
-  displayCapture: boolean;
-  microphoneCapture: boolean;
-  secureContext: boolean;
-};
-
-function getStatusToneClasses(tone: "warm" | "trust" | "neutral" | "danger") {
-  switch (tone) {
-    case "trust":
-      return "border-blue-400/20 bg-blue-500/10 text-blue-100";
-    case "danger":
-      return "border-red-400/20 bg-red-500/10 text-red-100";
-    case "warm":
-      return "border-amber-300/20 bg-amber-400/10 text-amber-50";
-    default:
-      return "border-white/10 bg-white/5 text-zinc-200";
-  }
-}
+import type { WorkspaceOverview as WorkspaceOverviewData } from "@/lib/workspace";
 
 export function WorkspaceOverview({
   displayName,
@@ -59,16 +29,6 @@ export function WorkspaceOverview({
   accessState: AccessState;
   overview: WorkspaceOverviewData;
 }) {
-  const [capabilities] = useState<BrowserCapabilities>(() => ({
-    displayCapture:
-      typeof navigator !== "undefined" &&
-      Boolean(navigator.mediaDevices?.getDisplayMedia),
-    microphoneCapture:
-      typeof navigator !== "undefined" &&
-      Boolean(navigator.mediaDevices?.getUserMedia),
-    secureContext: typeof window !== "undefined" ? window.isSecureContext : false,
-  }));
-
   const planInfo = PLAN_DETAILS[planCode];
   const integrationCards = [
     {
@@ -76,8 +36,8 @@ export function WorkspaceOverview({
       description:
         overview.google?.status === "connected"
           ? overview.google.selected_calendar_name || "Connected and ready for Meet creation"
-                  : overview.google?.status === "error" ||
-                      overview.google?.status === "reconnect_required"
+          : overview.google?.status === "error" ||
+              overview.google?.status === "reconnect_required"
             ? overview.providerStatus.googleRefreshConfigured
               ? "Google needs attention. The app will try silent token refresh before requiring reconnect."
               : "Reconnect Google to restore calendar access and Meet creation."
@@ -85,8 +45,8 @@ export function WorkspaceOverview({
       status:
         overview.google?.status === "connected"
           ? "Connected"
-                  : overview.google?.status === "error" ||
-                      overview.google?.status === "reconnect_required"
+          : overview.google?.status === "error" ||
+              overview.google?.status === "reconnect_required"
             ? "Reconnect needed"
           : overview.providerStatus.googleConfigured
             ? "Needs connection"
@@ -102,17 +62,17 @@ export function WorkspaceOverview({
           ? overview.notion.selected_destination_name || "Export destination configured"
           : overview.notion?.status === "needs_destination"
             ? "Connected. Pick a page or database destination to finish setup."
-                  : overview.notion?.status === "error" ||
-                      overview.notion?.status === "reconnect_required"
+            : overview.notion?.status === "error" ||
+                overview.notion?.status === "reconnect_required"
             ? "Reconnect Notion to restore the export workspace."
-          : "Configure page-first or database-first exports",
+            : "Configure page-first or database-first exports",
       status:
         overview.notion?.status === "connected"
           ? "Connected"
           : overview.notion?.status === "needs_destination"
             ? "Destination needed"
-                  : overview.notion?.status === "error" ||
-                      overview.notion?.status === "reconnect_required"
+            : overview.notion?.status === "error" ||
+                overview.notion?.status === "reconnect_required"
             ? "Reconnect needed"
           : overview.providerStatus.notionConfigured
             ? "Needs connection"
@@ -121,40 +81,7 @@ export function WorkspaceOverview({
       icon: NotebookTabs,
       accentRgb: "var(--brand-primary-rgb)",
     },
-    {
-      label: "Browser Capture",
-      description: capabilities.displayCapture
-        ? "Use the floating capture island to share any active meeting tab."
-        : "Display/tab capture is not available in this browser yet.",
-      status: capabilities.displayCapture ? "Tab sharing ready" : "Permission/API limited",
-      href: "#workspace-capture-island",
-      icon: Mic,
-      accentRgb: "var(--brand-highlight-rgb)",
-    },
-    {
-      label: "AI Pipeline",
-      description:
-        overview.providerStatus.deepgramConfigured && overview.providerStatus.openAiConfigured
-          ? "Managed findings pipeline is configured on the server."
-          : "Deepgram or OpenAI keys are still missing for live processing.",
-      status:
-        overview.providerStatus.deepgramConfigured && overview.providerStatus.openAiConfigured
-          ? "Configured"
-          : "Needs configuration",
-      href: "/dashboard/settings",
-      icon: PlugZap,
-      accentRgb: "var(--brand-support-rgb)",
-    },
   ];
-
-  const recentCards = useMemo(
-    () =>
-      overview.meetings.slice(0, 4).map((meeting) => ({
-        meeting,
-        findings: overview.findingsByMeetingId[meeting.id],
-      })),
-    [overview]
-  );
 
   return (
     <div className="space-y-8">
@@ -176,8 +103,8 @@ export function WorkspaceOverview({
                 Welcome back, <span className="brand-gradient-text">{displayName}</span>
               </h1>
               <p className="mt-3 max-w-2xl text-base leading-7 text-zinc-300">
-                The web workspace keeps the product simple: launch a meeting, capture the shared
-                browser tab, generate privacy-first findings, and export only what matters.
+                NextStop keeps the workflow simple: connect your tools, start capture from the
+                floating controller, and keep only the final findings bundle that matters.
               </p>
               <div className="mt-5 flex flex-wrap gap-3 text-sm text-zinc-300">
                 <span className="brand-surface-chip rounded-full border border-white/10 bg-white/5 px-3 py-1.5">
@@ -195,13 +122,22 @@ export function WorkspaceOverview({
             </div>
 
             <div className="grid w-full max-w-xl grid-cols-1 gap-3 sm:grid-cols-2">
-              <Link href="#workspace-capture-island">
+              <Link href="/dashboard/google">
                 <Button
                   radius="full"
                   className="brand-button-primary h-12 w-full font-semibold"
                   endContent={<ArrowRight className="h-4 w-4" />}
                 >
-                  Open Capture Controls
+                  Open Google Setup
+                </Button>
+              </Link>
+              <Link href="/dashboard/notion">
+                <Button
+                  radius="full"
+                  className="brand-button-secondary h-12 w-full font-semibold"
+                  endContent={<ArrowRight className="h-4 w-4" />}
+                >
+                  Open Notion Setup
                 </Button>
               </Link>
               <Link href="/plans">
@@ -213,14 +149,9 @@ export function WorkspaceOverview({
                   Manage Plan
                 </Button>
               </Link>
-              <Link href="/dashboard/google">
+              <Link href="#workspace-capture-island">
                 <Button radius="full" className="brand-button-secondary h-12 w-full font-semibold">
-                  Create Google Meet
-                </Button>
-              </Link>
-              <Link href="/dashboard/library">
-                <Button radius="full" className="brand-button-secondary h-12 w-full font-semibold">
-                  Open Findings Library
+                  Open Capture Controls
                 </Button>
               </Link>
             </div>
@@ -228,19 +159,81 @@ export function WorkspaceOverview({
         </div>
       </motion.section>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.25fr_0.95fr]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.05fr_0.95fr]">
         <motion.section
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, delay: 0.05 }}
           className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6"
         >
+          <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">
+            Account overview
+          </p>
+          <h2 className="mt-1 text-xl font-semibold text-white">Plan and workspace status</h2>
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
+            This page focuses on the basics: what plan you are on, whether your integrations are
+            ready, and what to do next.
+          </p>
+
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
+              <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Current plan</p>
+              <p className="mt-3 text-2xl font-semibold text-white">{planInfo.label}</p>
+              <p className="mt-2 text-sm leading-6 text-zinc-400">{planInfo.description}</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
+              <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Access state</p>
+              <p className="mt-3 text-2xl font-semibold capitalize text-white">
+                {accessState.replace(/_/g, " ")}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-zinc-400">
+                Billing and workspace access stay synced from the same account profile.
+              </p>
+            </div>
+          </div>
+        </motion.section>
+
+        <motion.section
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, delay: 0.08 }}
+          className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6"
+        >
+          <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">How it works</p>
+          <h2 className="mt-1 text-xl font-semibold text-white">Simple browser-first workflow</h2>
+
+          <div className="mt-6 space-y-4">
+            {[
+              "Connect Google if you want instant Meet creation or scheduled meetings.",
+              "Connect Notion if you want one-click export of findings to a page or database.",
+              "Use the floating capture controller to start, pause, resume, and end a browser-tab capture.",
+              "Review the findings in Library after capture finishes.",
+            ].map((item) => (
+              <div
+                key={item}
+                className="flex items-start gap-3 rounded-2xl border border-white/10 bg-black/20 p-4"
+              >
+                <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[var(--brand-highlight)]" />
+                <p className="text-sm leading-7 text-zinc-300">{item}</p>
+              </div>
+            ))}
+          </div>
+        </motion.section>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <motion.section
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, delay: 0.12 }}
+          className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6"
+        >
           <div className="mb-5 flex items-center justify-between">
             <div>
               <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">
-                Workspace readiness
+                Connections
               </p>
-              <h2 className="mt-1 text-xl font-semibold text-white">Integrations and capture</h2>
+              <h2 className="mt-1 text-xl font-semibold text-white">Google and Notion status</h2>
             </div>
             <Link href="/dashboard/settings" className="brand-link text-sm text-zinc-400">
               Open settings
@@ -278,177 +271,44 @@ export function WorkspaceOverview({
         <motion.section
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, delay: 0.08 }}
-          className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6"
-        >
-          <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Global capture</p>
-          <h2 className="mt-1 text-xl font-semibold text-white">Use the floating controller</h2>
-          <p className="mt-2 text-sm leading-6 text-zinc-400">
-            The dynamic island now follows you across Dashboard, Library, Google, Notion, Settings,
-            and Review. Start from there to pick a meeting tab, record it, and send findings into
-            Library automatically.
-          </p>
-
-          <div className="mt-6 space-y-4">
-            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Controls</p>
-              <p className="mt-3 text-sm leading-7 text-zinc-300">
-                Instant Google Meet, Start, Pause or Resume, End, and Sync to Notion are all in the
-                floating island. You no longer need a dedicated capture page.
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">How capture works</p>
-              <p className="mt-3 text-sm leading-7 text-zinc-300">
-                Clicking Start opens the browser share picker, lets you choose the active meeting
-                tab, and begins transcription and findings processing only for that shared tab.
-              </p>
-            </div>
-
-            <Link href="#workspace-capture-island" className="block">
-              <Button
-                radius="full"
-                className="brand-button-primary h-12 w-full font-semibold"
-                endContent={<ArrowRight className="h-4 w-4" />}
-              >
-                Jump to Capture Controls
-              </Button>
-            </Link>
-          </div>
-        </motion.section>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <motion.section
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, delay: 0.12 }}
-          className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6"
-        >
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Recent findings</p>
-              <h2 className="mt-1 text-xl font-semibold text-white">Saved summaries only</h2>
-            </div>
-            <Link href="/dashboard/library" className="brand-link text-sm text-zinc-400">
-              View all
-            </Link>
-          </div>
-
-          <div className="space-y-3">
-            {recentCards.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-white/10 bg-black/20 px-5 py-10 text-center text-sm text-zinc-500">
-                No saved findings yet. Start a browser meeting and keep only the summary bundle.
-              </div>
-            ) : (
-              recentCards.map(({ meeting, findings }) => {
-                const meetingStatus = MEETING_STATUS_COPY[meeting.status];
-                return (
-                  <Link
-                    key={meeting.id}
-                    href={`/dashboard/review/${meeting.id}`}
-                    className="brand-card-hover block rounded-2xl border border-white/10 bg-black/20 p-4"
-                    style={{ "--card-accent-rgb": "var(--brand-primary-rgb)" } as React.CSSProperties}
-                  >
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="truncate text-lg font-semibold text-white">
-                            {meeting.title}
-                          </h3>
-                          <span
-                            className={`rounded-full border px-2.5 py-1 text-xs ${getStatusToneClasses(meetingStatus.tone)}`}
-                          >
-                            {meetingStatus.label}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-sm text-zinc-400">
-                          {MEETING_SOURCE_LABELS[meeting.source_type]} | {formatWorkspaceDate(meeting.created_at)}
-                        </p>
-                        <p className="mt-3 line-clamp-2 text-sm leading-6 text-zinc-300">
-                          {findings?.summary_short ?? meetingStatus.description}
-                        </p>
-                      </div>
-                      <ArrowRight className="h-5 w-5 shrink-0 text-zinc-500" />
-                    </div>
-                  </Link>
-                );
-              })
-            )}
-          </div>
-        </motion.section>
-
-        <motion.section
-          initial={{ opacity: 0, y: 18 }}
-          animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, delay: 0.16 }}
           className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6"
         >
-          <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Privacy + companion</p>
-          <h2 className="mt-1 text-xl font-semibold text-white">Browser-first, desktop-ready</h2>
+          <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">What to do next</p>
+          <h2 className="mt-1 text-xl font-semibold text-white">Quick next steps</h2>
 
           <div className="mt-6 space-y-4">
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-              <div className="flex items-start gap-3">
-                <ShieldCheck className="mt-0.5 h-5 w-5 text-[var(--brand-highlight)]" />
-                <div>
-                  <p className="font-medium text-white">Transcript is not stored</p>
-                  <p className="mt-1 text-sm leading-6 text-zinc-400">
-                    Only findings, summaries, and export metadata remain in Supabase. Transcript
-                    access stays ephemeral and can be disabled entirely in production.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-              <div className="flex items-start gap-3">
-                <Presentation className="mt-0.5 h-5 w-5 text-[var(--brand-primary)]" />
-                <div>
-                  <p className="font-medium text-white">Desktop companion</p>
-                  <p className="mt-1 text-sm leading-6 text-zinc-400">
-                    Use the same subscription on desktop if you want stronger local capture, tray
-                    controls, and a more native recording experience.
-                  </p>
-                </div>
-              </div>
+              <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Recommended flow</p>
+              <p className="mt-3 text-sm leading-7 text-zinc-300">
+                First connect Google and Notion, then use the floating controller for capture,
+                and finally open Library to review and export findings.
+              </p>
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Link href="/" className="block">
+              <Link href="/dashboard/library" className="block">
                 <Button
                   radius="full"
                   className="brand-button-secondary h-11 w-full font-semibold"
-                  startContent={<HardDrive className="h-4 w-4" />}
                 >
-                  Download desktop
+                  Open Library
                 </Button>
               </Link>
-              <Link href="/dashboard/settings" className="block">
+              <Link href="#workspace-capture-island" className="block">
                 <Button
                   radius="full"
-                  className="brand-button-secondary h-11 w-full font-semibold"
-                  startContent={<ExternalLink className="h-4 w-4" />}
+                  className="brand-button-primary h-11 w-full font-semibold"
+                  endContent={<ArrowRight className="h-4 w-4" />}
                 >
-                  Open settings
+                  Open Capture Controls
                 </Button>
               </Link>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm text-zinc-400">
-              Capture APIs:{" "}
-              <span className="text-zinc-200">
-                {capabilities.displayCapture ? "tab sharing available" : "tab sharing unavailable"}
-              </span>
-              {" | "}
-              <span className="text-zinc-200">
-                {capabilities.microphoneCapture ? "microphone available" : "microphone unavailable"}
-              </span>
-              {" | "}
-              <span className="text-zinc-200">
-                {capabilities.secureContext ? "secure context" : "not secure"}
-              </span>
+            <div className="rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm leading-6 text-zinc-400">
+              The floating controller stays available across Dashboard, Library, Google, Notion,
+              Settings, and Review, so you do not need a separate capture page.
             </div>
           </div>
         </motion.section>
