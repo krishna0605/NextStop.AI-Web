@@ -2,8 +2,12 @@ import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const execFileAsync = promisify(execFile);
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(scriptDir, "..", "..");
 
 const requiredFiles = [
   ".env.example",
@@ -25,7 +29,7 @@ async function ensureRequiredFilesExist() {
 
   for (const file of requiredFiles) {
     try {
-      await access(file, constants.F_OK);
+      await access(path.join(repoRoot, file), constants.F_OK);
     } catch {
       missing.push(file);
     }
@@ -37,7 +41,10 @@ async function ensureRequiredFilesExist() {
 }
 
 async function ensureNoForbiddenTrackedFiles() {
-  const { stdout } = await execFileAsync("git", ["ls-files"], { encoding: "utf8" });
+  const { stdout } = await execFileAsync("git", ["ls-files"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
   const trackedFiles = stdout
     .split(/\r?\n/)
     .map((line) => line.trim())
