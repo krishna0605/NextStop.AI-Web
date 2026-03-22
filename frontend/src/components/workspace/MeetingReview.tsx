@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { deriveStructuredMeetingContent } from "@/lib/meeting-artifacts";
+import { resolvePublicApiUrl } from "@/lib/public-backend";
 import type {
   AiStatusSnapshot,
   IntegrationRecord,
@@ -171,9 +172,12 @@ export function MeetingReview({
     setBusyAction("pdf");
     setError(null);
     try {
-      const response = await fetch(`/api/workspace/meetings/${meeting.id}/exports/pdf`, {
+      const response = await fetch(
+        resolvePublicApiUrl(`/api/workspace/meetings/${meeting.id}/exports/pdf`),
+        {
         method: "POST",
-      });
+        }
+      );
 
       if (!response.ok) {
         const payload = await response.json();
@@ -193,7 +197,9 @@ export function MeetingReview({
     setBusyAction("transcript");
     setError(null);
     try {
-      const response = await fetch(`/api/workspace/meetings/${meeting.id}/transcript`);
+      const response = await fetch(
+        resolvePublicApiUrl(`/api/workspace/meetings/${meeting.id}/transcript`)
+      );
 
       if (!response.ok) {
         const payload = await response.json();
@@ -215,9 +221,12 @@ export function MeetingReview({
     setBusyAction("notion");
     setError(null);
     try {
-      const response = await fetch(`/api/workspace/meetings/${meeting.id}/exports/notion`, {
+      const response = await fetch(
+        resolvePublicApiUrl(`/api/workspace/meetings/${meeting.id}/exports/notion`),
+        {
         method: "POST",
-      });
+        }
+      );
       const payload = await response.json();
 
       if (!response.ok) {
@@ -239,7 +248,9 @@ export function MeetingReview({
     setError(null);
     try {
       const response = await fetch(
-        `/api/workspace/meetings/${meeting.id}/artifacts/${artifactType}/regenerate`,
+        resolvePublicApiUrl(
+          `/api/workspace/meetings/${meeting.id}/artifacts/${artifactType}/regenerate`
+        ),
         { method: "POST" }
       );
       const payload = await response.json();

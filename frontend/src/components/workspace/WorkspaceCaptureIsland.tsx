@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { BrandLogoIcon } from "@/components/BrandLogoIcon";
+import { resolvePublicApiUrl } from "@/lib/public-backend";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 const STORAGE_KEY = "nextstop-workspace-capture-session";
@@ -176,7 +177,9 @@ export function WorkspaceCaptureIsland() {
 
   async function refreshContext() {
     try {
-      const response = await fetch("/api/workspace/island/context", { cache: "no-store" });
+      const response = await fetch(resolvePublicApiUrl("/api/workspace/island/context"), {
+        cache: "no-store",
+      });
       const payload = (await response.json().catch(() => null)) as IslandContext | null;
       if (!response.ok || !payload) return;
       setContext(payload);
@@ -241,13 +244,16 @@ export function WorkspaceCaptureIsland() {
   }
 
   async function uploadFinalizeBlob(meeting: ActiveMeetingRef, audioBlob: Blob) {
-    const uploadResponse = await fetch(`/api/workspace/meetings/${meeting.id}/upload-url`, {
+    const uploadResponse = await fetch(
+      resolvePublicApiUrl(`/api/workspace/meetings/${meeting.id}/upload-url`),
+      {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         filename: "meeting-capture.webm",
       }),
-    });
+      }
+    );
     const uploadPayload = (await uploadResponse.json()) as {
       error?: string;
       bucket?: string;
@@ -274,7 +280,9 @@ export function WorkspaceCaptureIsland() {
       throw new Error(uploadError.message);
     }
 
-    const response = await fetch(`/api/workspace/meetings/${meeting.id}/process`, {
+    const response = await fetch(
+      resolvePublicApiUrl(`/api/workspace/meetings/${meeting.id}/process`),
+      {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -283,7 +291,8 @@ export function WorkspaceCaptureIsland() {
         mimeType: file.type || "audio/webm",
         byteSize: file.size,
       }),
-    });
+      }
+    );
     const payload = (await response.json()) as { error?: string };
     if (!response.ok) {
       throw new Error(payload.error ?? "Unable to queue the meeting for transcription.");
@@ -316,7 +325,7 @@ export function WorkspaceCaptureIsland() {
       const meetingTarget = pendingMeeting;
       const title = meetingTarget?.title ?? buildDefaultMeetingTitle();
       const sourceType = meetingTarget?.sourceType ?? "browser_tab";
-      const response = await fetch("/api/workspace/meetings/start", {
+      const response = await fetch(resolvePublicApiUrl("/api/workspace/meetings/start"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ meetingId: meetingTarget?.meetingId, title, sourceType }),
@@ -432,7 +441,9 @@ export function WorkspaceCaptureIsland() {
     setVisibility("expanded");
     setShowRecordingPill(false);
     try {
-      const response = await fetch("/api/workspace/google/instant-meet", { method: "POST" });
+      const response = await fetch(resolvePublicApiUrl("/api/workspace/google/instant-meet"), {
+        method: "POST",
+      });
       const payload = (await response.json()) as { error?: string; meetingId?: string; googleEventId?: string | null; title?: string; meetUrl?: string | null };
       if (!response.ok || !payload.meetingId) throw new Error(payload.error ?? "Unable to create the instant Google Meet.");
       setPendingMeeting({ meetingId: payload.meetingId, title: payload.title ?? "Instant NextStop meeting", sourceType: "google_meet", googleEventId: payload.googleEventId ?? null, meetUrl: payload.meetUrl ?? null });
@@ -462,7 +473,10 @@ export function WorkspaceCaptureIsland() {
     setVisibility("expanded");
     setShowRecordingPill(false);
     try {
-      const response = await fetch("/api/workspace/meetings/latest/export/notion", { method: "POST" });
+      const response = await fetch(
+        resolvePublicApiUrl("/api/workspace/meetings/latest/export/notion"),
+        { method: "POST" }
+      );
       const payload = (await response.json()) as { error?: string; message?: string };
       if (!response.ok) throw new Error(payload.error ?? "Unable to export the latest findings to Notion.");
       setNotice(payload.message ?? "Exported the latest findings to Notion.");

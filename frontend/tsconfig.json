@@ -32,8 +32,7 @@
   ],
   "exclude": [
     "node_modules",
-    "ai-core",
-    "supabase/functions",
+    "../backend",
     "tests",
     "playwright.config.ts",
     "vitest.config.ts",

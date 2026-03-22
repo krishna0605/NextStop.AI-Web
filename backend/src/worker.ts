@@ -1,9 +1,6 @@
 import { Worker } from "bullmq";
-import Redis from "ioredis";
 
-const redis = new Redis(process.env.REDIS_URL ?? "redis://127.0.0.1:6379", {
-  maxRetriesPerRequest: null,
-});
+import { getRedisConnection } from "./redis.js";
 
 new Worker(
   "nextstop-ai-jobs",
@@ -26,7 +23,7 @@ new Worker(
 
     console.log("[ai-core] Ignoring unknown job", job.name, job.id);
   },
-  { connection: redis }
+  { connection: getRedisConnection({ blocking: true }) }
 );
 
 console.log("[ai-core] Transcription worker started");

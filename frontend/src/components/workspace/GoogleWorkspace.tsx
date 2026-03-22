@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { resolvePublicApiUrl } from "@/lib/public-backend";
 import { createClient } from "@/lib/supabase-browser";
 import type { IntegrationRecord } from "@/lib/workspace";
 
@@ -110,7 +111,7 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
     setError(null);
 
     try {
-      const response = await fetch("/api/workspace/google/overview");
+      const response = await fetch(resolvePublicApiUrl("/api/workspace/google/overview"));
       const payload = await response.json();
 
       if (!response.ok) {
@@ -169,7 +170,7 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
     setNotice(null);
 
     try {
-      const response = await fetch("/api/workspace/integrations/disconnect", {
+      const response = await fetch(resolvePublicApiUrl("/api/workspace/integrations/disconnect"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -197,7 +198,7 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
     setError(null);
 
     try {
-      const response = await fetch("/api/workspace/google/calendars/select", {
+      const response = await fetch(resolvePublicApiUrl("/api/workspace/google/calendars/select"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -228,7 +229,7 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
     setNotice(null);
 
     try {
-      const response = await fetch("/api/workspace/google/instant-meet", {
+      const response = await fetch(resolvePublicApiUrl("/api/workspace/google/instant-meet"), {
         method: "POST",
       });
       const payload = await response.json();
@@ -258,7 +259,7 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
     setNotice(null);
 
     try {
-      const response = await fetch("/api/workspace/google/events", {
+      const response = await fetch(resolvePublicApiUrl("/api/workspace/google/events"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

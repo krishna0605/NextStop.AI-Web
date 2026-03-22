@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { resolvePublicApiUrl } from "@/lib/public-backend";
 import {
   type AccessState,
   type PlanCode,
@@ -137,7 +138,7 @@ export function BillingPlans({
     setError(null);
 
     try {
-      const response = await fetch("/api/billing/trial/start", {
+      const response = await fetch(resolvePublicApiUrl("/api/billing/trial/start"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -170,7 +171,7 @@ export function BillingPlans({
     setError(null);
 
     try {
-      const response = await fetch("/api/billing/subscriptions/create", {
+      const response = await fetch(resolvePublicApiUrl("/api/billing/subscriptions/create"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -206,7 +207,9 @@ export function BillingPlans({
           color: "#f28145",
         },
         handler: async (checkoutResponse) => {
-          const verifyResponse = await fetch("/api/billing/subscriptions/verify", {
+          const verifyResponse = await fetch(
+            resolvePublicApiUrl("/api/billing/subscriptions/verify"),
+            {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -215,7 +218,8 @@ export function BillingPlans({
               ...checkoutResponse,
               nextPath,
             }),
-          });
+            }
+          );
 
           const verifyPayload = await verifyResponse.json();
 

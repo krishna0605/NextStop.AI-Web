@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { resolvePublicApiUrl } from "@/lib/public-backend";
 import type { IntegrationRecord, NotionDestination } from "@/lib/workspace";
 
 function getStatusPresentation(record: IntegrationRecord | null, providerConfigured: boolean) {
@@ -86,7 +87,7 @@ export function NotionWorkspace({
     setError(null);
 
     try {
-      const response = await fetch("/api/workspace/notion/destinations", {
+      const response = await fetch(resolvePublicApiUrl("/api/workspace/notion/destinations"), {
         cache: "no-store",
       });
       const payload = (await response.json()) as {
@@ -134,7 +135,7 @@ export function NotionWorkspace({
     setNotice(null);
 
     try {
-      const response = await fetch("/api/workspace/notion/connect", {
+      const response = await fetch(resolvePublicApiUrl("/api/workspace/notion/connect"), {
         method: "POST",
       });
       const payload = (await response.json()) as {
@@ -163,7 +164,7 @@ export function NotionWorkspace({
     setNotice(null);
 
     try {
-      const response = await fetch("/api/workspace/integrations/disconnect", {
+      const response = await fetch(resolvePublicApiUrl("/api/workspace/integrations/disconnect"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -198,7 +199,9 @@ export function NotionWorkspace({
     setNotice(null);
 
     try {
-      const response = await fetch("/api/workspace/notion/destinations/select", {
+      const response = await fetch(
+        resolvePublicApiUrl("/api/workspace/notion/destinations/select"),
+        {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -208,7 +211,8 @@ export function NotionWorkspace({
           destinationName: selectedDestination.name,
           destinationType: selectedDestination.type,
         }),
-      });
+        }
+      );
       const payload = (await response.json()) as { error?: string };
 
       if (!response.ok) {

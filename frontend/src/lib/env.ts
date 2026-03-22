@@ -33,6 +33,10 @@ export function getAiCoreApiUrl() {
   return readEnv("AI_CORE_API_URL");
 }
 
+export function getBackendApiUrl() {
+  return readEnv("NEXT_PUBLIC_BACKEND_URL");
+}
+
 export function getAiCoreSharedSecret() {
   return readEnv("AI_CORE_SHARED_SECRET");
 }
@@ -132,6 +136,7 @@ export function getRuntimeReadiness() {
   const transcriptDownloadsEnabled = isTranscriptDownloadEnabled();
   const aiPipelineMode = getAiPipelineMode();
   const aiCoreConfigured = Boolean(getAiCoreApiUrl() && getAiCoreSharedSecret());
+  const backendApiConfigured = Boolean(getBackendApiUrl());
   const huggingFaceConfigured = getHuggingFaceConfigured();
 
   return {
@@ -145,6 +150,7 @@ export function getRuntimeReadiness() {
     openAiConfigured: Boolean(readEnv("OPENAI_API_KEY")),
     aiPipelineMode,
     aiCoreConfigured,
+    backendApiConfigured,
     huggingFaceConfigured,
     meetingAudioBucket: getMeetingAudioBucket(),
     meetingTranscriptBucket: getMeetingTranscriptBucket(),

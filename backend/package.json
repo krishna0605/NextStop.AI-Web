@@ -1,8 +1,10 @@
 {
-  "name": "nextstop-ai-core",
+  "name": "nextstop-backend",
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx src/index.ts",
     "start:api": "tsx src/server.ts",
     "start:worker": "tsx src/worker.ts",
     "start:cleanup": "tsx src/cleanup.ts",

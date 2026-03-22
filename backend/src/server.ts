@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import { Queue } from "bullmq";
-import Redis from "ioredis";
+
+import { getRedisConnection } from "./redis.js";
 
 type TranscriptionJobPayload = {
   jobId: string;
@@ -13,8 +14,7 @@ type RegenerationJobPayload = TranscriptionJobPayload & {
 };
 
 const app = Fastify({ logger: true });
-const redis = new Redis(process.env.REDIS_URL ?? "redis://127.0.0.1:6379");
-const queue = new Queue("nextstop-ai-jobs", { connection: redis });
+const queue = new Queue("nextstop-ai-jobs", { connection: getRedisConnection() });
 
 app.get("/health", async () => {
   return {

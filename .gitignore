@@ -1,7 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+**/node_modules
 /.pnp
 .pnp.*
 .yarn/*
@@ -11,17 +11,18 @@
 !.yarn/versions
 
 # testing
-/coverage
-/playwright-report
-/test-results
+**/coverage
+**/playwright-report
+**/test-results
 /artifacts
 
 # next.js
-/.next/
-/out/
+**/.next/
+**/out/
 
 # production
-/build
+**/build
+**/dist
 
 # misc
 .DS_Store
@@ -37,9 +38,11 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+!frontend/.env.vercel.example
+!backend/.env.railway.example
 
 # vercel
-.vercel
+**/.vercel
 
 # typescript
 *.tsbuildinfo
