@@ -5,6 +5,7 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "start:api": "tsx src/server.ts",
     "start:worker": "tsx src/worker.ts",
     "start:cleanup": "tsx src/cleanup.ts",
