@@ -33,7 +33,7 @@ describe("MeetingReview", () => {
     expect(
       screen.getByText(/Transcript downloads are disabled for this production launch/i)
     ).toBeInTheDocument();
-    expect(screen.getByText(/ephemeral transcript, durable artifact bundle/i)).toBeInTheDocument();
+    expect(screen.getByText(/shared outputs, transcript-free cloud workspace/i)).toBeInTheDocument();
     expect(screen.getByText(/Transcription pipeline/i)).toBeInTheDocument();
     expect(screen.getByText(/Transcription: ready/i)).toBeInTheDocument();
   });
