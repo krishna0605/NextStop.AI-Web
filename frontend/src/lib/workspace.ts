@@ -24,7 +24,7 @@ export type IntegrationStatus =
   | "reconnect_required"
   | "error";
 
-export type TranscriptAvailabilityStatus = "available" | "expired" | "disabled";
+export type TranscriptAvailabilityStatus = "available" | "expired" | "disabled" | "local_only";
 export type AiPipelineMode = "railway_remote" | "inline_legacy";
 export type AiJobType = "transcribe" | "finalize" | "regenerate_artifact";
 export type AiJobStatus = "queued" | "running" | "partial_success" | "ready" | "failed";
@@ -81,6 +81,10 @@ export interface WebMeetingRecord {
   session_metadata?: Record<string, unknown> | null;
   started_at?: string | null;
   ended_at?: string | null;
+  origin_platform?: string | null;
+  origin_device_id?: string | null;
+  external_local_id?: string | null;
+  transcript_storage?: "local_only" | "none" | null;
   created_at?: string | null;
   updated_at?: string | null;
 }

@@ -234,9 +234,11 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
                     <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Transcript / durability</p>
                     <p className="mt-3 flex items-center gap-2 text-sm text-zinc-300">
                       <NotebookPen className="h-4 w-4 text-[var(--brand-highlight)]" />
-                      {aiStatus?.transcriptAsset?.expires_at
+                      {meeting.origin_platform === "desktop" && meeting.transcript_storage === "local_only"
+                        ? "Transcript available only on desktop"
+                        : aiStatus?.transcriptAsset?.expires_at
                         ? `Transcript TTL until ${formatWorkspaceDate(aiStatus.transcriptAsset.expires_at)}`
-                        : "Durable findings artifact only"}
+                        : "Structured outputs only"}
                     </p>
                   </div>
                 </div>

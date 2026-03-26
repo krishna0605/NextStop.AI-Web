@@ -629,16 +629,12 @@ async function materializeArtifacts(args: {
   meeting: WebMeetingRecord;
   userId: string;
   findings: MeetingFindingsRecord;
-  transcriptText: string;
-  speakerSegments: SpeakerSegmentRecord[];
   sourceModel: string;
   jobId: string;
 }) {
   const canonicalArtifact = buildCanonicalArtifact({
     meeting: args.meeting,
     findings: args.findings,
-    transcriptText: args.transcriptText,
-    speakerSegments: args.speakerSegments,
     sourceModel: args.sourceModel,
   });
   const markdown = canonicalArtifactToMarkdown(canonicalArtifact);
@@ -717,7 +713,7 @@ async function runInlineTranscriptionJob(job: AiJobRecord) {
   providerMetadata.pipeline = {
     primaryTranscriptionProvider: "deepgram",
     downstreamFindingsProvider: process.env.OPENAI_API_KEY ? "openai" : "unconfigured",
-    transcriptSource: "storage_asset",
+    transcriptSource: "memory_only",
   };
 
   await updateAiJob(job.id, {
@@ -766,24 +762,21 @@ async function runInlineTranscriptionJob(job: AiJobRecord) {
   });
   await updateMeetingStatus(job.meeting_id, job.user_id, "processing");
 
-  const materializedTranscript = await materializeTranscript({
-    meetingId: job.meeting_id,
-    userId: job.user_id,
-    jobId: job.id,
-    transcriptText,
-    deepgramResult,
-  });
-
   providerMetadata.transcription = {
-    ...materializedTranscript.transcription,
+    provider: deepgramResult?.provider ?? "manual",
+    sourceModel: deepgramResult?.sourceModel ?? "manual:seed-text",
+    requestId: deepgramResult?.requestId ?? null,
+    language: deepgramResult?.language ?? null,
+    confidence: deepgramResult?.confidence ?? null,
+    durationSeconds: deepgramResult?.durationSeconds ?? null,
     status: "ready",
-    transcriptAsset: materializedTranscript.transcriptAsset,
-    normalizedSegmentCount: materializedTranscript.speakerSegments.length,
-    storedAt: new Date().toISOString(),
+    transcriptStorage: "memory_only",
+    normalizedSegmentCount: deepgramResult?.paragraphs.length ?? 0,
+    discardedAt: new Date().toISOString(),
   };
   providerMetadata.findings = {
     status: "queued",
-    transcriptSource: "storage_asset",
+    transcriptSource: "memory_only",
   };
 
   await updateAiJob(job.id, {
@@ -793,11 +786,7 @@ async function runInlineTranscriptionJob(job: AiJobRecord) {
   });
   await updateMeetingStatus(job.meeting_id, job.user_id, "analyzing");
 
-  const storedTranscript = await readTextAssetByLocation(
-    materializedTranscript.transcriptAsset.bucket,
-    materializedTranscript.transcriptAsset.path
-  );
-  const findingsPayload = await generateMeetingFindings(meeting.title, storedTranscript);
+  const findingsPayload = await generateMeetingFindings(meeting.title, transcriptText);
   const findingsRecord: MeetingFindingsRecord = {
     id: `findings-${job.id}`,
     meeting_id: meeting.id,
@@ -817,7 +806,7 @@ async function runInlineTranscriptionJob(job: AiJobRecord) {
   await upsertMeetingFindings(job.meeting_id, job.user_id, findingsPayload);
   providerMetadata.findings = {
     status: "ready",
-    transcriptSource: "storage_asset",
+    transcriptSource: "memory_only",
     sourceModel: findingsPayload.sourceModel,
     generatedAt: new Date().toISOString(),
   };
@@ -832,8 +821,6 @@ async function runInlineTranscriptionJob(job: AiJobRecord) {
     meeting,
     userId: job.user_id,
     findings: findingsRecord,
-    transcriptText: storedTranscript,
-    speakerSegments: materializedTranscript.speakerSegments,
     sourceModel: findingsPayload.sourceModel,
     jobId: job.id,
   });
@@ -1311,8 +1298,18 @@ export async function loadAiStatusSnapshot(meetingId: string, userId: string) {
 }
 
 export function getTranscriptAvailabilityFromAsset(
-  transcriptAsset: MeetingAssetRecord | null
+  transcriptAsset: MeetingAssetRecord | null,
+  meeting?: WebMeetingRecord | null
 ): TranscriptAvailability {
+  if (meeting?.origin_platform === "desktop" && meeting?.transcript_storage === "local_only") {
+    return {
+      status: "local_only",
+      downloadEnabled: false,
+      message: "Transcript is available only on the desktop app for this meeting.",
+      expiresAt: null,
+    };
+  }
+
   if (!isTranscriptDownloadEnabled()) {
     return {
       status: "disabled",
@@ -1325,10 +1322,10 @@ export function getTranscriptAvailabilityFromAsset(
 
   if (!transcriptAsset?.expires_at) {
     return {
-      status: "expired",
+      status: "disabled",
       downloadEnabled: false,
       message:
-        "The temporary transcript is no longer available. Findings remain permanently available.",
+        "This meeting keeps only the structured findings bundle. No transcript is stored in the shared workspace.",
       expiresAt: null,
     };
   }
@@ -1364,7 +1361,7 @@ export async function downloadTranscriptForMeeting(args: {
     throw new Error("Meeting not found.");
   }
 
-  const availability = getTranscriptAvailabilityFromAsset(transcriptAsset);
+  const availability = getTranscriptAvailabilityFromAsset(transcriptAsset, meeting);
 
   if (!availability.downloadEnabled || !transcriptAsset) {
     return {

@@ -281,7 +281,7 @@ export function MeetingReview({
             <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Review</p>
             <h1 className="mt-1 text-3xl font-bold text-white">{meeting.title}</h1>
             <p className="mt-2 text-sm text-zinc-400">
-              {MEETING_SOURCE_LABELS[meeting.source_type]} | {formatWorkspaceDate(meeting.created_at)} | ephemeral transcript, durable artifact bundle
+              {MEETING_SOURCE_LABELS[meeting.source_type]} | {formatWorkspaceDate(meeting.created_at)} | shared outputs, transcript-free cloud workspace
             </p>
             <p className="mt-4 text-sm leading-7 text-zinc-300">
               {structured.summaryShort}
@@ -325,7 +325,11 @@ export function MeetingReview({
               className="brand-button-secondary h-11 font-semibold"
               startContent={busyAction === "transcript" ? undefined : <Download className="h-4 w-4" />}
             >
-              {transcriptAvailability.downloadEnabled ? "Temporary transcript" : "Transcript unavailable"}
+              {transcriptAvailability.status === "local_only"
+                ? "Transcript on desktop"
+                : transcriptAvailability.downloadEnabled
+                  ? "Temporary transcript"
+                  : "Transcript unavailable"}
             </Button>
           </div>
         </div>
@@ -492,8 +496,7 @@ export function MeetingReview({
             <div className="mt-4 flex items-start gap-3">
               <ShieldCheck className="mt-1 h-5 w-5 text-[var(--brand-highlight)]" />
               <p className="text-sm leading-7 text-zinc-300">
-                Raw audio is short-lived for {providerStatus.rawAssetRetentionHours} hours, transcripts expire after{" "}
-                {providerStatus.transcriptRetentionMinutes} minutes, and only the structured meeting artifact remains durable.
+                Raw audio is short-lived for {providerStatus.rawAssetRetentionHours} hours, and the durable cloud record keeps only structured findings, exports, and meeting metadata.
               </p>
             </div>
           </div>

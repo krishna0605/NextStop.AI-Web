@@ -51,7 +51,8 @@ export async function GET(
         },
         {
           status:
-            transcriptResult.availability.status === "disabled"
+            transcriptResult.availability.status === "disabled" ||
+            transcriptResult.availability.status === "local_only"
               ? 410
               : 404,
         }

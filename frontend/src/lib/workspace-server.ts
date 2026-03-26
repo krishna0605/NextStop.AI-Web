@@ -470,7 +470,10 @@ export async function loadMeetingDetail(
       aiStatus: aiStatus ?? null,
       google,
       notion,
-      transcriptAvailability: getTranscriptAvailabilityFromAsset(aiStatus?.transcriptAsset ?? null),
+      transcriptAvailability: getTranscriptAvailabilityFromAsset(
+        aiStatus?.transcriptAsset ?? null,
+        meeting as WebMeetingRecord
+      ),
       providerStatus: getWorkspaceProviderStatus(),
     };
   } catch (error) {
