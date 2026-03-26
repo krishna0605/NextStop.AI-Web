@@ -40,7 +40,7 @@ export function Testimonials() {
     <section id="testimonials" className="relative overflow-hidden bg-transparent py-24">
       <div className="container relative z-10 mx-auto mb-16 px-4 md:px-6">
         <div className="mx-auto max-w-2xl text-center">
-          <h2 className="mb-4 text-3xl font-bold text-white md:text-5xl">
+          <h2 className="font-heading mb-4 text-3xl font-bold text-white md:text-5xl">
             Built for product, engineering, and ops teams
           </h2>
           <p className="text-lg text-zinc-400">
@@ -80,7 +80,7 @@ function TestimonialCard({
 }) {
   return (
     <div
-      className={`brand-card-hover shrink-0 rounded-2xl border border-white/10 bg-zinc-900/55 ${
+      className={`brand-card-hover hover-border-gradient shrink-0 rounded-2xl border border-white/10 bg-zinc-900/55 ${
         compact ? "w-[320px] p-6" : "w-[360px] p-8 md:w-[420px]"
       }`}
       style={{ "--card-accent-rgb": "232 169 88" } as React.CSSProperties}

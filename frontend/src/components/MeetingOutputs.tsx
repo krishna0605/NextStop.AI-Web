@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { FileText, RefreshCcw, Sparkles, Workflow } from "lucide-react";
-import React from "react";
+import React, { useState } from "react";
 
 type SurfaceTone = "warm" | "support" | "trust";
 
@@ -73,33 +73,33 @@ const surfaces: Array<{
   },
 ];
 
-const surfaceRgb: Record<SurfaceTone, string> = {
-  warm: "242 129 69",
-  support: "232 169 88",
-  trust: "80 103 184",
-};
-
-const iconStyles: Record<SurfaceTone, { bg: string; color: string }> = {
+const toneColors: Record<SurfaceTone, { bg: string; color: string; accent: string }> = {
   warm: {
-    bg: "rgb(var(--brand-primary-rgb) / 0.16)",
+    bg: "rgb(var(--brand-primary-rgb) / 0.12)",
     color: "var(--brand-primary)",
+    accent: "rgb(var(--brand-primary-rgb) / 0.25)",
   },
   support: {
-    bg: "rgb(var(--brand-support-rgb) / 0.16)",
+    bg: "rgb(var(--brand-support-rgb) / 0.12)",
     color: "var(--brand-highlight)",
+    accent: "rgb(var(--brand-support-rgb) / 0.25)",
   },
   trust: {
-    bg: "rgb(var(--brand-trust-rgb) / 0.16)",
+    bg: "rgb(var(--brand-trust-rgb) / 0.12)",
     color: "var(--brand-trust)",
+    accent: "rgb(var(--brand-trust-rgb) / 0.25)",
   },
 };
 
 export function MeetingOutputs() {
+  const [activeTab, setActiveTab] = useState(0);
+  const active = surfaces[activeTab];
+
   return (
     <section className="relative overflow-hidden border-t border-white/5 bg-transparent py-24">
       <div className="container relative z-10 mx-auto px-4 md:px-6">
         <div className="mx-auto mb-16 max-w-3xl text-center">
-          <h2 className="mb-4 text-3xl font-bold text-white md:text-5xl">
+          <h2 className="font-heading mb-4 text-3xl font-bold text-white md:text-5xl">
             What users actually get after a meeting
           </h2>
           <p className="text-lg text-zinc-400">
@@ -109,80 +109,91 @@ export function MeetingOutputs() {
           </p>
         </div>
 
-        <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 md:grid-cols-2">
-          {surfaces.map((surface, index) => (
-            <motion.div
-              key={surface.title}
-              initial={{ opacity: 0, y: 18 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, margin: "-80px" }}
-              transition={{ duration: 0.45, delay: index * 0.06 }}
-              className="brand-surface-card rounded-[1.75rem]"
-              style={{ "--surface-rgb": surfaceRgb[surface.tone] } as React.CSSProperties}
-            >
-              <div className="brand-surface-frame rounded-[1.75rem] p-6">
-                <div className="mb-5 flex items-center justify-between">
-                  <div
-                    className="flex h-11 w-11 items-center justify-center rounded-2xl"
-                    style={{
-                      background: iconStyles[surface.tone].bg,
-                      color: iconStyles[surface.tone].color,
-                    }}
-                  >
+        <div className="mx-auto max-w-5xl">
+          {/* Tab bar */}
+          <div className="mb-8 flex flex-wrap gap-2 justify-center">
+            {surfaces.map((surface, index) => {
+              const isActive = activeTab === index;
+              return (
+                <button
+                  key={surface.title}
+                  onClick={() => setActiveTab(index)}
+                  className="flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-all duration-300"
+                  style={{
+                    borderColor: isActive
+                      ? toneColors[surface.tone].accent
+                      : "rgb(255 255 255 / 0.08)",
+                    background: isActive
+                      ? toneColors[surface.tone].bg
+                      : "transparent",
+                    color: isActive ? "#fff" : "#a1a1aa",
+                    boxShadow: isActive
+                      ? `0 0 24px -12px ${toneColors[surface.tone].color}`
+                      : "none",
+                  }}
+                >
+                  <span style={{ color: isActive ? toneColors[surface.tone].color : undefined }}>
                     {surface.icon}
-                  </div>
-                  <div
-                    className="h-px w-24"
-                    style={{
-                      background:
-                        "linear-gradient(to right, transparent, rgb(var(--brand-highlight-rgb) / 0.85), transparent)",
-                    }}
-                  />
+                  </span>
+                  {surface.title}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Active tab content */}
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35 }}
+            className="rounded-2xl border border-white/8 bg-zinc-950/80 p-8 hover-border-gradient"
+          >
+            <div className="flex flex-col gap-8 md:flex-row">
+              {/* Left: description */}
+              <div className="flex-1">
+                <div
+                  className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl"
+                  style={{
+                    background: toneColors[active.tone].bg,
+                    color: toneColors[active.tone].color,
+                  }}
+                >
+                  {active.icon}
                 </div>
-
-                <h3 className="mb-3 text-2xl font-bold text-white">{surface.title}</h3>
-                <p className="mb-6 text-zinc-400">{surface.description}</p>
-
-                <div className="mb-5 flex flex-wrap gap-2">
-                  {surface.chips.map((chip) => (
+                <h3 className="font-heading mb-3 text-2xl font-bold text-white">
+                  {active.title}
+                </h3>
+                <p className="mb-5 leading-relaxed text-zinc-400">
+                  {active.description}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {active.chips.map((chip) => (
                     <span
                       key={chip}
-                      className="brand-surface-chip rounded-full border border-white/8 bg-white/[0.03] px-3 py-1 text-xs font-medium text-zinc-300"
+                      className="rounded-full border px-3 py-1 text-xs font-medium text-zinc-300"
+                      style={{
+                        borderColor: toneColors[active.tone].accent,
+                        background: toneColors[active.tone].bg,
+                      }}
                     >
                       {chip}
                     </span>
                   ))}
                 </div>
+              </div>
 
-                <div className="brand-surface-grid rounded-2xl border border-white/8 p-4">
-                  <div className="mb-3 flex items-center justify-between">
-                    <p className="text-[11px] uppercase tracking-[0.24em] text-zinc-500">
-                      {surface.previewTitle}
-                    </p>
-                    <span
-                      className="h-2.5 w-2.5 rounded-full"
-                      style={{
-                        backgroundColor:
-                          surface.tone === "trust"
-                            ? "var(--brand-trust)"
-                            : surface.tone === "support"
-                              ? "var(--brand-highlight)"
-                              : "var(--brand-primary)",
-                        boxShadow:
-                          surface.tone === "trust"
-                            ? "0 0 14px rgb(var(--brand-trust-rgb) / 0.7)"
-                            : surface.tone === "support"
-                              ? "0 0 14px rgb(var(--brand-highlight-rgb) / 0.7)"
-                              : "0 0 14px rgb(var(--brand-primary-rgb) / 0.7)",
-                      }}
-                    />
-                  </div>
-
+              {/* Right: preview */}
+              <div className="flex-1">
+                <div className="rounded-xl border border-white/6 bg-black/40 p-5">
+                  <p className="mb-4 text-[11px] uppercase tracking-[0.24em] text-zinc-500">
+                    {active.previewTitle}
+                  </p>
                   <div className="space-y-3">
-                    {surface.previewRows.map((row) => (
+                    {active.previewRows.map((row) => (
                       <div
                         key={row}
-                        className="brand-surface-chip rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5 text-sm text-zinc-300"
+                        className="rounded-lg border border-white/6 bg-white/[0.02] px-4 py-3 text-sm text-zinc-300"
                       >
                         {row}
                       </div>
@@ -190,8 +201,8 @@ export function MeetingOutputs() {
                   </div>
                 </div>
               </div>
-            </motion.div>
-          ))}
+            </div>
+          </motion.div>
         </div>
       </div>
     </section>

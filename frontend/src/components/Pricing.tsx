@@ -100,7 +100,7 @@ export function Pricing() {
     <section id="pricing" className="relative bg-transparent py-24">
       <div className="container mx-auto px-4 md:px-6">
         <div className="mx-auto mb-16 max-w-2xl text-center">
-          <h2 className="mb-4 text-4xl font-bold text-white md:text-5xl">
+          <h2 className="font-heading mb-4 text-4xl font-bold text-white md:text-5xl">
             Choose the workflow that fits your team
           </h2>
           <p className="mb-8 text-lg text-zinc-400">

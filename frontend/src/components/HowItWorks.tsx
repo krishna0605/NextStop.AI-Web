@@ -76,7 +76,7 @@ export function HowItWorks() {
     >
       <div className="container mx-auto px-4 md:px-6">
         <div className="mx-auto mb-20 max-w-2xl text-center">
-          <h2 className="mb-4 text-4xl font-bold text-white md:text-5xl">
+          <h2 className="font-heading mb-4 text-4xl font-bold text-white md:text-5xl">
             How it works
           </h2>
           <p className="text-lg text-zinc-400">
@@ -101,7 +101,7 @@ export function HowItWorks() {
                 >
                   {step.icon}
                 </div>
-                <h3 className="text-3xl font-bold tracking-tight text-white">
+                <h3 className="font-heading text-3xl font-bold tracking-tight text-white text-hover-brand cursor-default">
                   <span className="mr-2 text-zinc-600">0{index + 1}.</span>
                   {step.title}
                 </h3>

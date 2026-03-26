@@ -3,115 +3,99 @@
 import { motion } from "framer-motion";
 import { CalendarRange, FileText, Mic } from "lucide-react";
 import React from "react";
+import { CurvedConnector, MobileConnector } from "./CurvedConnector";
 
-type LifecycleTone = "warm" | "support" | "trust";
-
-const stages: Array<{
-  title: string;
-  phase: string;
-  description: string;
-  icon: React.ReactNode;
-  tone: LifecycleTone;
-  bullets: string[];
-  previewLabel: string;
-  previewRows: string[];
-}> = [
+const stages = [
   {
     title: "Before the meeting",
     phase: "01",
     description:
       "Start with intention instead of recording first and organizing later. Users can choose the session type, title, tags, destination, and sync defaults up front.",
-    icon: <CalendarRange className="h-5 w-5" />,
-    tone: "warm",
+    icon: <CalendarRange className="h-8 w-8" style={{ color: "var(--brand-primary)" }} />,
+    accent: "var(--brand-primary)",
+    gradient:
+      "radial-gradient(ellipse at 30% 50%, rgb(var(--brand-primary-rgb) / 0.12), transparent 70%)",
     bullets: [
       "Start Session launcher",
       "Google Meet or existing meeting path",
       "Tag and Notion destination selection",
     ],
-    previewLabel: "Session setup",
-    previewRows: [
-      "Type: Instant Google Meet",
-      "Tag: Engineering",
-      "Auto-sync after finish",
-    ],
+    preview: {
+      title: "Session preflight",
+      rows: [
+        { label: "Type", value: "Instant Google Meet" },
+        { label: "Tag", value: "Engineering" },
+        { label: "Destination", value: "Notion — Launch Hub" },
+        { label: "Auto-sync", value: "Enabled" },
+      ],
+    },
   },
   {
     title: "During the session",
     phase: "02",
     description:
       "Capture stays local while the desktop HUD keeps the meeting controllable. Participant identity, highlights, notes, and actions stay attached to the active session.",
-    icon: <Mic className="h-5 w-5" />,
-    tone: "support",
+    icon: <Mic className="h-8 w-8" style={{ color: "var(--brand-support)" }} />,
+    accent: "var(--brand-support)",
+    gradient:
+      "radial-gradient(ellipse at 70% 50%, rgb(var(--brand-support-rgb) / 0.12), transparent 70%)",
     bullets: [
       "Local recording and transcript history",
       "Dynamic island controls and quick notes",
       "Stable participant identity in review",
     ],
-    previewLabel: "Live controls",
-    previewRows: [
-      "Recording  00:24:18",
-      "Highlight  Action  Note",
-      "Participants resolved",
-    ],
+    preview: {
+      title: "Live capture",
+      rows: [
+        { label: "Recording", value: "00:24:18" },
+        { label: "Speakers", value: "3 resolved" },
+        { label: "Highlights", value: "2 marked" },
+        { label: "Actions", value: "1 tagged" },
+      ],
+    },
   },
   {
     title: "After the meeting",
     phase: "03",
     description:
       "The finalized meeting package flows into review, post-meeting AI, memory, and export surfaces so users can finish the follow-up without rebuilding the meeting context.",
-    icon: <FileText className="h-5 w-5" />,
-    tone: "trust",
+    icon: <FileText className="h-8 w-8" style={{ color: "var(--brand-trust)" }} />,
+    accent: "var(--brand-trust)",
+    gradient:
+      "radial-gradient(ellipse at 30% 50%, rgb(var(--brand-trust-rgb) / 0.12), transparent 70%)",
     bullets: [
       "AI status rail and summary artifacts",
       "Targeted regeneration and memory reuse",
       "Markdown, Notion, and export-ready outputs",
     ],
-    previewLabel: "Review output",
-    previewRows: [
-      "Summary ready",
-      "Tasks: 4  Decisions: 3",
-      "Memory context: 2 related meetings",
-    ],
+    preview: {
+      title: "Post-meeting outputs",
+      rows: [
+        { label: "Summary", value: "Ready" },
+        { label: "Tasks", value: "4 extracted" },
+        { label: "Decisions", value: "3 captured" },
+        { label: "Memory", value: "2 related meetings" },
+      ],
+    },
   },
 ];
 
-const surfaceRgb: Record<LifecycleTone, string> = {
-  warm: "242 129 69",
-  support: "232 169 88",
-  trust: "80 103 184",
-};
-
-const surfaceStyles: Record<
-  LifecycleTone,
-  { iconBg: string; iconColor: string; bullet: string }
-> = {
-  warm: {
-    iconBg: "rgb(var(--brand-primary-rgb) / 0.16)",
-    iconColor: "var(--brand-primary)",
-    bullet: "rgb(var(--brand-primary-rgb) / 0.2)",
-  },
-  support: {
-    iconBg: "rgb(var(--brand-support-rgb) / 0.16)",
-    iconColor: "var(--brand-highlight)",
-    bullet: "rgb(var(--brand-support-rgb) / 0.18)",
-  },
-  trust: {
-    iconBg: "rgb(var(--brand-trust-rgb) / 0.16)",
-    iconColor: "var(--brand-trust)",
-    bullet: "rgb(var(--brand-trust-rgb) / 0.2)",
-  },
-};
+const connectorDirections: Array<"left-to-right" | "right-to-left"> = [
+  "left-to-right",
+  "right-to-left",
+];
 
 export function MeetingLifecycle() {
   return (
     <section className="relative overflow-hidden border-t border-white/5 bg-transparent py-24">
       <div className="container relative z-10 mx-auto px-4 md:px-6">
-        <div className="mx-auto mb-16 max-w-3xl text-center">
+        {/* Section header */}
+        <div className="mx-auto mb-20 max-w-3xl text-center">
           <motion.h2
             initial={{ opacity: 0, y: 18 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            className="mb-4 text-3xl font-bold text-white md:text-5xl"
+            className="font-heading mb-4 text-3xl font-bold text-white md:text-5xl"
           >
             Before, during, and after the meeting
           </motion.h2>
@@ -127,74 +111,99 @@ export function MeetingLifecycle() {
           </motion.p>
         </div>
 
-        <div className="relative mx-auto max-w-6xl">
-          <div className="pointer-events-none absolute left-[18%] right-[18%] top-24 hidden items-center md:flex">
-            <div className="brand-surface-line flex-1" />
-          </div>
+        {/* Zigzag snake-flow layout */}
+        <div className="mx-auto flex max-w-6xl flex-col">
+          {stages.map((stage, index) => {
+            const isEven = index % 2 === 0;
 
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
-            {stages.map((stage, index) => (
-              <motion.div
-                key={stage.title}
-                initial={{ opacity: 0, y: 24 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: "-90px" }}
-                transition={{ duration: 0.45, delay: index * 0.07 }}
-                className="brand-surface-card rounded-[1.75rem]"
-                style={{ "--surface-rgb": surfaceRgb[stage.tone] } as React.CSSProperties}
-              >
-                <div className="brand-surface-frame rounded-[1.75rem] p-6">
-                  <div className="mb-6 flex items-center justify-between">
-                    <div
-                      className="flex h-12 w-12 items-center justify-center rounded-2xl"
-                      style={{
-                        background: surfaceStyles[stage.tone].iconBg,
-                        color: surfaceStyles[stage.tone].iconColor,
-                      }}
-                    >
-                      {stage.icon}
-                    </div>
-                    <span className="brand-surface-chip rounded-full border border-white/8 bg-white/[0.03] px-3 py-1 text-xs font-semibold tracking-[0.22em] text-zinc-400">
-                      {stage.phase}
-                    </span>
-                  </div>
+            return (
+              <React.Fragment key={stage.title}>
+                <motion.div
+                  initial={{ opacity: 0, x: isEven ? -40 : 40 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true, margin: "-80px" }}
+                  transition={{ duration: 0.6, type: "spring", bounce: 0.25 }}
+                  className={`group relative flex flex-col items-center gap-8 md:flex-row ${
+                    !isEven ? "md:flex-row-reverse" : ""
+                  }`}
+                >
 
-                  <h3 className="mb-3 text-2xl font-bold text-white">{stage.title}</h3>
-                  <p className="mb-6 text-sm leading-relaxed text-zinc-400">
-                    {stage.description}
-                  </p>
 
-                  <div className="mb-6 space-y-3">
-                    {stage.bullets.map((bullet) => (
-                      <div key={bullet} className="flex items-start gap-3">
-                        <span
-                          className="mt-2 h-2 w-2 rounded-full"
-                          style={{ background: surfaceStyles[stage.tone].bullet }}
-                        />
-                        <p className="text-sm text-zinc-300">{bullet}</p>
+                  {/* Text column */}
+                  <div className="relative z-10 flex-1 space-y-4">
+                    <div className="flex items-center gap-4">
+                      <div
+                        className="flex h-16 w-16 items-center justify-center rounded-2xl border border-white/10 bg-zinc-900 shadow-lg"
+                        style={{ boxShadow: `0 0 32px -20px ${stage.accent}` }}
+                      >
+                        {stage.icon}
                       </div>
-                    ))}
-                  </div>
-
-                  <div className="brand-surface-grid rounded-2xl border border-white/8 p-4">
-                    <p className="mb-3 text-[11px] uppercase tracking-[0.24em] text-zinc-500">
-                      {stage.previewLabel}
+                      <span
+                        className="font-heading text-5xl font-bold"
+                        style={{ color: `color-mix(in srgb, ${stage.accent} 30%, transparent)` }}
+                      >
+                        {stage.phase}
+                      </span>
+                    </div>
+                    <h3 className="font-heading text-3xl font-bold tracking-tight text-white">
+                      {stage.title}
+                    </h3>
+                    <p className="max-w-md text-lg leading-relaxed text-zinc-400">
+                      {stage.description}
                     </p>
-                    <div className="space-y-3">
-                      {stage.previewRows.map((row) => (
-                        <div
-                          key={row}
-                          className="brand-surface-chip rounded-full border border-white/8 bg-white/[0.03] px-3 py-2 text-sm text-zinc-300"
-                        >
-                          {row}
+                    <div className="space-y-2 pt-2">
+                      {stage.bullets.map((bullet) => (
+                        <div key={bullet} className="flex items-center gap-2.5">
+                          <span
+                            className="h-1.5 w-1.5 rounded-full"
+                            style={{ background: stage.accent, opacity: 0.5 }}
+                          />
+                          <p className="text-sm text-zinc-300">{bullet}</p>
                         </div>
                       ))}
                     </div>
                   </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
+
+                  {/* Preview panel (terminal-style) */}
+                  <div className="relative z-10 w-full max-w-[420px] flex-1">
+                    <div className="overflow-hidden rounded-2xl border border-white/8 bg-zinc-950/80 transition-all duration-300 group-hover:border-white/12 group-hover:shadow-[0_0_40px_-20px_rgba(232,169,88,0.15)]">
+                      {/* Terminal header */}
+                      <div className="flex h-10 items-center gap-2 border-b border-white/5 bg-zinc-900/60 px-4">
+                        <div className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+                        <div className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+                        <div className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
+                        <span className="ml-2 text-[10px] uppercase tracking-[0.2em] text-zinc-500">
+                          {stage.preview.title}
+                        </span>
+                      </div>
+                      {/* Preview rows */}
+                      <div className="p-5">
+                        <div className="space-y-3">
+                          {stage.preview.rows.map((row) => (
+                            <div
+                              key={row.label}
+                              className="flex items-center justify-between gap-4 rounded-lg border border-white/5 bg-white/[0.02] px-4 py-2.5"
+                            >
+                              <span className="text-xs text-zinc-500">{row.label}</span>
+                              <span className="text-xs font-medium text-zinc-200">{row.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+
+                {/* Curved connector arrow */}
+                {index < stages.length - 1 && (
+                  <>
+                    <CurvedConnector direction={connectorDirections[index]} />
+                    <MobileConnector />
+                  </>
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
       </div>
     </section>

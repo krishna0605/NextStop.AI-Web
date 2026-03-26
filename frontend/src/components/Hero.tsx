@@ -1,19 +1,41 @@
 "use client";
 
 import { Button } from "@heroui/react";
-import { motion } from "framer-motion";
-import React from "react";
+import { motion, useScroll, useTransform } from "framer-motion";
+import React, { useRef } from "react";
 
+import { useToast } from "./ui/ActionToast";
 import { ScrollTypewriter } from "./ui/ScrollTypewriter";
 
 export function Hero() {
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({
+    target: sectionRef,
+    offset: ["start start", "end start"],
+  });
+
+  const badgeY = useTransform(scrollYProgress, [0, 1], [0, -30]);
+  const headingY = useTransform(scrollYProgress, [0, 1], [0, -60]);
+  const subtextY = useTransform(scrollYProgress, [0, 1], [0, -90]);
+  const mockupY = useTransform(scrollYProgress, [0, 1], [0, -120]);
+
+  const showToast = useToast();
+
+  function handleDownload() {
+    showToast("Download link copied! Check your clipboard.");
+  }
+
   return (
-    <section className="relative flex min-h-screen w-full flex-col items-center justify-center overflow-hidden bg-transparent px-4 pt-28 sm:px-6">
+    <section
+      ref={sectionRef}
+      className="relative flex min-h-screen w-full flex-col items-center justify-center overflow-hidden bg-transparent px-4 pt-28 sm:px-6"
+    >
       <div className="container relative z-10 mx-auto flex flex-col items-center text-center">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45 }}
+          style={{ y: badgeY, willChange: "transform" }}
           className="mb-8"
         >
           <span className="brand-chip inline-flex items-center rounded-full px-4 py-1.5 text-sm font-medium">
@@ -32,10 +54,11 @@ export function Hero() {
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.08 }}
-          className="mb-6 max-w-5xl text-5xl font-bold tracking-tight text-white md:text-7xl lg:text-8xl"
+          style={{ y: headingY, willChange: "transform" }}
+          className="font-heading mb-6 max-w-5xl text-5xl font-bold tracking-tight text-white md:text-7xl lg:text-8xl"
         >
           Run meetings locally. Let{" "}
-          <span className="brand-gradient-text">NextStop.ai</span>
+          <span className="brand-gradient-text text-shimmer">NextStop.ai</span>
           {" "}finish the follow-up.
         </motion.h1>
 
@@ -43,6 +66,7 @@ export function Hero() {
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.16 }}
+          style={{ y: subtextY, willChange: "transform" }}
           className="mb-10 max-w-2xl text-lg text-zinc-300/80 md:text-xl"
         >
           Start a structured desktop session, capture speaker-aware transcripts
@@ -55,12 +79,14 @@ export function Hero() {
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.24 }}
+          style={{ y: subtextY, willChange: "transform" }}
           className="flex flex-col items-center gap-4 sm:flex-row"
         >
           <Button
             size="lg"
             radius="full"
-            className="brand-button-primary h-12 w-full px-8 text-md font-semibold sm:w-auto"
+            className="brand-button-primary button-shine h-12 w-full px-8 text-md font-semibold sm:w-auto"
+            onPress={handleDownload}
           >
             Download Desktop App
           </Button>
@@ -68,7 +94,7 @@ export function Hero() {
             size="lg"
             variant="bordered"
             radius="full"
-            className="brand-button-secondary h-12 w-full px-8 text-md font-semibold sm:w-auto"
+            className="brand-button-secondary button-shine h-12 w-full px-8 text-md font-semibold sm:w-auto"
           >
             Explore Workflow
           </Button>
@@ -78,6 +104,7 @@ export function Hero() {
           initial={{ opacity: 0, y: 32, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.55, delay: 0.3 }}
+          style={{ y: mockupY, willChange: "transform" }}
           className="relative mt-20 w-full max-w-5xl"
         >
           <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-black/80 p-2 shadow-2xl before:pointer-events-none before:absolute before:inset-0 before:bg-gradient-to-b before:from-white/8 before:to-transparent md:p-4">

@@ -54,7 +54,7 @@ export function UseCases() {
       <div className="container relative z-10 mx-auto px-4 md:px-6">
         <div className="mx-auto flex max-w-6xl flex-col items-center gap-12 md:flex-row">
           <div className="relative w-full flex-1">
-            <h2 className="mb-6 text-3xl font-bold text-white md:text-5xl">
+            <h2 className="font-heading mb-6 text-3xl font-bold text-white md:text-5xl">
               Built for the full <br /> meeting{" "}
               <span className="brand-gradient-text">lifecycle</span>.
             </h2>
