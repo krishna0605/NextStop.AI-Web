@@ -13,7 +13,15 @@ export function getPublicBackendUrl() {
   return configured ? trimTrailingSlash(configured) : null;
 }
 
-export function resolvePublicApiUrl(path: string) {
+function isFrontendApiPath(path: string) {
+  return path === "/api" || path.startsWith("/api/");
+}
+
+export function resolveFrontendApiUrl(path: string) {
+  return normalizePath(path);
+}
+
+export function resolveBackendApiUrl(path: string) {
   const normalizedPath = normalizePath(path);
   const backendUrl = getPublicBackendUrl();
 
@@ -22,4 +30,14 @@ export function resolvePublicApiUrl(path: string) {
   }
 
   return `${backendUrl}${normalizedPath}`;
+}
+
+export function resolvePublicApiUrl(path: string) {
+  const normalizedPath = normalizePath(path);
+
+  if (isFrontendApiPath(normalizedPath)) {
+    return resolveFrontendApiUrl(normalizedPath);
+  }
+
+  return resolveBackendApiUrl(normalizedPath);
 }

@@ -153,6 +153,26 @@ export function MeetingReview({
     () => getMetadataRecord(latestJobMetadata.findings),
     [latestJobMetadata]
   );
+  const remoteDispatchMetadata = useMemo(
+    () => getMetadataRecord(latestJobMetadata.remote_dispatch),
+    [latestJobMetadata]
+  );
+  const latestExecutionMode = getMetadataString(latestJobMetadata, "execution_mode");
+  const latestFailedStage = getMetadataString(latestJobMetadata, "failed_stage");
+  const remoteDispatchQueuedAt = getMetadataString(remoteDispatchMetadata, "queuedAt");
+  const remoteDispatchError = getMetadataString(remoteDispatchMetadata, "error");
+  const latestJobError =
+    aiStatus?.latestJob?.error?.trim() || remoteDispatchError || null;
+  const runtimeStatus =
+    providerStatus.aiPipelineMode === "railway_remote"
+      ? latestExecutionMode === "railway_remote"
+        ? aiStatus?.latestJob?.status === "failed"
+          ? "Remote worker failed"
+          : "Remote worker executed"
+        : providerStatus.aiCoreConfigured
+          ? "Remote queue configured"
+          : "Remote queue misconfigured"
+      : "Inline fallback active";
 
   useEffect(() => {
     if (!aiStatus?.pending) {
@@ -428,10 +448,12 @@ export function MeetingReview({
             </div>
             <div className="mt-4 space-y-3 text-sm text-zinc-300">
               <p>
-                Status: {aiStatus?.latestJob?.status ?? meeting.status} | Pipeline: {providerStatus.aiPipelineMode}
+                Status: {aiStatus?.latestJob?.status ?? meeting.status} | Pipeline:{" "}
+                {providerStatus.aiPipelineMode}
               </p>
               <p>
-                Runtime: {providerStatus.aiCoreConfigured ? "Railway queue configured" : "Inline fallback active"} | Deepgram: {providerStatus.deepgramConfigured ? "configured" : "not configured"}
+                Runtime: {runtimeStatus} | Execution: {latestExecutionMode ?? "awaiting"} |
+                Deepgram: {providerStatus.deepgramConfigured ? "configured" : "not configured"}
               </p>
               <p>
                 Transcription: {getMetadataString(transcriptionMetadata, "status") ?? "awaiting"} | Provider:{" "}
@@ -443,10 +465,21 @@ export function MeetingReview({
                 {getMetadataString(findingsMetadata, "sourceModel") ??
                   (providerStatus.openAiConfigured ? "openai downstream" : "not configured")}
               </p>
+              {remoteDispatchQueuedAt ? (
+                <p>Remote dispatch queued at: {formatWorkspaceDate(remoteDispatchQueuedAt)}</p>
+              ) : null}
+              {latestFailedStage ? (
+                <p>Latest failure stage: {latestFailedStage.replace(/_/g, " ")}</p>
+              ) : null}
               {aiStatus?.pending ? (
                 <p className="text-zinc-400">
                   This view refreshes automatically while transcription and findings are still running.
                 </p>
+              ) : null}
+              {latestJobError ? (
+                <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+                  Latest job error: {latestJobError}
+                </div>
               ) : null}
               {modelBadges.length > 0 ? (
                 <div className="flex flex-wrap gap-2">

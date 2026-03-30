@@ -51,6 +51,10 @@ export function getAiPipelineMode(): AiPipelineMode {
   return getAiCoreApiUrl() ? "railway_remote" : "inline_legacy";
 }
 
+export function getAiInlineFallbackAllowed() {
+  return readEnv("AI_INLINE_FALLBACK_ENABLED") === "true";
+}
+
 export function getMeetingAudioBucket() {
   return readEnv("SUPABASE_MEETING_AUDIO_BUCKET") || "meeting-audio";
 }
@@ -138,6 +142,7 @@ export function getRuntimeReadiness() {
   const aiCoreConfigured = Boolean(getAiCoreApiUrl() && getAiCoreSharedSecret());
   const backendApiConfigured = Boolean(getBackendApiUrl());
   const huggingFaceConfigured = getHuggingFaceConfigured();
+  const aiInlineFallbackAllowed = getAiInlineFallbackAllowed();
 
   return {
     appUrl: getAppUrl(),
@@ -150,6 +155,7 @@ export function getRuntimeReadiness() {
     openAiConfigured: Boolean(readEnv("OPENAI_API_KEY")),
     aiPipelineMode,
     aiCoreConfigured,
+    aiInlineFallbackAllowed,
     backendApiConfigured,
     huggingFaceConfigured,
     meetingAudioBucket: getMeetingAudioBucket(),
@@ -174,7 +180,9 @@ export function getRuntimeReadiness() {
       aiMode:
         aiPipelineMode === "railway_remote"
           ? aiCoreConfigured
-            ? "remote_queue_ready"
+            ? aiInlineFallbackAllowed
+              ? "remote_queue_ready_with_inline_fallback"
+              : "remote_queue_ready"
             : "remote_queue_config_missing"
           : "inline_legacy_fallback",
       googleMode: googleRefreshConfigured ? "oauth_and_refresh" : "oauth_only",

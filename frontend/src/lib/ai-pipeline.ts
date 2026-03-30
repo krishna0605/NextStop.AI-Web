@@ -11,6 +11,7 @@ import {
 import {
   getAiCoreApiUrl,
   getAiCoreSharedSecret,
+  getAiInlineFallbackAllowed,
   getAiPipelineMode,
   getMeetingAudioBucket,
   getMeetingTranscriptBucket,
@@ -406,6 +407,17 @@ async function fetchLatestJob(meetingId: string, userId: string) {
   return (data as AiJobRecord | null) ?? null;
 }
 
+async function fetchJobById(jobId: string) {
+  const admin = createAdminClient();
+  const { data, error } = await admin.from("ai_jobs").select("*").eq("id", jobId).maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return (data as AiJobRecord | null) ?? null;
+}
+
 async function fetchFindings(meetingId: string, userId: string) {
   const admin = createAdminClient();
   const { data, error } = await admin
@@ -701,7 +713,10 @@ async function materializeArtifacts(args: {
   ]);
 }
 
-async function runInlineTranscriptionJob(job: AiJobRecord) {
+async function runTranscriptionJob(
+  job: AiJobRecord,
+  executionMode: "inline_legacy" | "railway_remote"
+) {
   const meeting = await fetchMeeting(job.meeting_id, job.user_id);
 
   if (!meeting) {
@@ -709,11 +724,11 @@ async function runInlineTranscriptionJob(job: AiJobRecord) {
   }
 
   const providerMetadata = cloneRecord(job.provider_metadata);
-  providerMetadata.execution_mode = "inline_legacy";
+  providerMetadata.execution_mode = executionMode;
   providerMetadata.pipeline = {
     primaryTranscriptionProvider: "deepgram",
     downstreamFindingsProvider: process.env.OPENAI_API_KEY ? "openai" : "unconfigured",
-    transcriptSource: "memory_only",
+    transcriptSource: "audio_asset",
   };
 
   await updateAiJob(job.id, {
@@ -745,38 +760,48 @@ async function runInlineTranscriptionJob(job: AiJobRecord) {
     throw new Error("No transcript text was available to process.");
   }
 
-  providerMetadata.transcription = {
-    status: "normalizing",
-    provider: deepgramResult?.provider ?? "manual",
-    sourceModel: deepgramResult?.sourceModel ?? "manual:seed-text",
-    requestId: deepgramResult?.requestId ?? null,
-    language: deepgramResult?.language ?? null,
-    confidence: deepgramResult?.confidence ?? null,
-    durationSeconds: deepgramResult?.durationSeconds ?? null,
-  };
-
   await updateAiJob(job.id, {
     status: "running",
     stage: "normalizing",
-    provider_metadata: providerMetadata,
+    provider_metadata: {
+      ...providerMetadata,
+      transcription: {
+        status: "normalizing",
+        provider: deepgramResult?.provider ?? "manual",
+        sourceModel: deepgramResult?.sourceModel ?? "manual:seed-text",
+        requestId: deepgramResult?.requestId ?? null,
+        language: deepgramResult?.language ?? null,
+        confidence: deepgramResult?.confidence ?? null,
+        durationSeconds: deepgramResult?.durationSeconds ?? null,
+      },
+    },
   });
   await updateMeetingStatus(job.meeting_id, job.user_id, "processing");
 
+  const transcriptResult = await materializeTranscript({
+    meetingId: job.meeting_id,
+    userId: job.user_id,
+    jobId: job.id,
+    transcriptText,
+    deepgramResult,
+  });
+
   providerMetadata.transcription = {
-    provider: deepgramResult?.provider ?? "manual",
-    sourceModel: deepgramResult?.sourceModel ?? "manual:seed-text",
-    requestId: deepgramResult?.requestId ?? null,
-    language: deepgramResult?.language ?? null,
-    confidence: deepgramResult?.confidence ?? null,
-    durationSeconds: deepgramResult?.durationSeconds ?? null,
+    provider: transcriptResult.transcription.provider,
+    sourceModel: transcriptResult.transcription.sourceModel,
+    requestId: transcriptResult.transcription.requestId,
+    language: transcriptResult.transcription.language,
+    confidence: transcriptResult.transcription.confidence,
+    durationSeconds: transcriptResult.transcription.durationSeconds,
     status: "ready",
-    transcriptStorage: "memory_only",
-    normalizedSegmentCount: deepgramResult?.paragraphs.length ?? 0,
-    discardedAt: new Date().toISOString(),
+    transcriptStorage: "temporary_asset",
+    transcriptBucket: transcriptResult.transcriptAsset.bucket,
+    transcriptPath: transcriptResult.transcriptAsset.path,
+    normalizedSegmentCount: transcriptResult.speakerSegments.length,
   };
   providerMetadata.findings = {
     status: "queued",
-    transcriptSource: "memory_only",
+    transcriptSource: "transcript_asset",
   };
 
   await updateAiJob(job.id, {
@@ -786,7 +811,10 @@ async function runInlineTranscriptionJob(job: AiJobRecord) {
   });
   await updateMeetingStatus(job.meeting_id, job.user_id, "analyzing");
 
-  const findingsPayload = await generateMeetingFindings(meeting.title, transcriptText);
+  const findingsPayload = await generateMeetingFindings(
+    meeting.title,
+    transcriptResult.transcriptText
+  );
   const findingsRecord: MeetingFindingsRecord = {
     id: `findings-${job.id}`,
     meeting_id: meeting.id,
@@ -806,7 +834,7 @@ async function runInlineTranscriptionJob(job: AiJobRecord) {
   await upsertMeetingFindings(job.meeting_id, job.user_id, findingsPayload);
   providerMetadata.findings = {
     status: "ready",
-    transcriptSource: "memory_only",
+    transcriptSource: "transcript_asset",
     sourceModel: findingsPayload.sourceModel,
     generatedAt: new Date().toISOString(),
   };
@@ -839,7 +867,10 @@ async function runInlineTranscriptionJob(job: AiJobRecord) {
   await updateMeetingStatus(job.meeting_id, job.user_id, "ready");
 }
 
-async function runInlineRegenerationJob(job: AiJobRecord) {
+async function runRegenerationJob(
+  job: AiJobRecord,
+  executionMode: "inline_legacy" | "railway_remote"
+) {
   const meeting = await fetchMeeting(job.meeting_id, job.user_id);
 
   if (!meeting || !job.artifact_type) {
@@ -864,6 +895,10 @@ async function runInlineRegenerationJob(job: AiJobRecord) {
     stage: "regenerating",
     attempts: (job.attempts ?? 0) + 1,
     started_at: new Date().toISOString(),
+    provider_metadata: {
+      ...(job.provider_metadata ?? {}),
+      execution_mode: executionMode,
+    },
   });
 
   const regenerated = await generateMeetingFindings(meeting.title, seedContent.markdown);
@@ -1016,6 +1051,7 @@ async function runInlineRegenerationJob(job: AiJobRecord) {
       ...(job.provider_metadata ?? {}),
       regeneratedArtifact: job.artifact_type,
       sourceModel: nextSourceModel,
+      execution_mode: executionMode,
     },
   });
 }
@@ -1031,6 +1067,11 @@ async function queueRemoteJob(
     throw new Error("AI core is not configured.");
   }
 
+  console.info("[workspace-ai] Dispatching remote AI job", {
+    path,
+    apiUrl,
+    jobId: body.jobId,
+  });
   const response = await fetch(new URL(path, apiUrl).toString(), {
     method: "POST",
     headers: {
@@ -1044,6 +1085,92 @@ async function queueRemoteJob(
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { error?: string } | null;
     throw new Error(payload?.error || `AI core request failed with ${response.status}.`);
+  }
+}
+
+async function markRemoteDispatchFailure(args: {
+  job: AiJobRecord;
+  error: unknown;
+  failedStage: "queue_remote" | "regenerate_remote";
+}) {
+  const errorMessage =
+    args.error instanceof Error ? args.error.message : "Remote worker handoff failed.";
+  const providerMetadata = cloneRecord(args.job.provider_metadata);
+  const remoteDispatch = cloneRecord(
+    providerMetadata.remote_dispatch as Record<string, unknown> | undefined
+  );
+
+  remoteDispatch.failedAt = new Date().toISOString();
+  remoteDispatch.error = errorMessage;
+  providerMetadata.execution_mode = "railway_remote";
+  providerMetadata.remote_dispatch = remoteDispatch;
+
+  await updateAiJob(args.job.id, {
+    status: "failed",
+    stage: "completed",
+    error: errorMessage,
+    finished_at: new Date().toISOString(),
+    provider_metadata: {
+      ...providerMetadata,
+      failed_stage: args.failedStage,
+    },
+  });
+}
+
+export async function executeTranscriptionJob(
+  jobId: string,
+  executionMode: "inline_legacy" | "railway_remote"
+) {
+  const job = await fetchJobById(jobId);
+
+  if (!job || job.job_type !== "transcribe") {
+    throw new Error("Transcription job not found.");
+  }
+
+  try {
+    await runTranscriptionJob(job, executionMode);
+  } catch (error) {
+    await updateAiJob(job.id, {
+      status: "failed",
+      stage: "completed",
+      error: error instanceof Error ? error.message : "AI processing failed.",
+      finished_at: new Date().toISOString(),
+      provider_metadata: {
+        ...(job.provider_metadata ?? {}),
+        execution_mode: executionMode,
+        failed_stage: "transcribe",
+      },
+    });
+    await updateMeetingStatus(job.meeting_id, job.user_id, "failed");
+    throw error;
+  }
+}
+
+export async function executeRegenerationJob(
+  jobId: string,
+  executionMode: "inline_legacy" | "railway_remote"
+) {
+  const job = await fetchJobById(jobId);
+
+  if (!job || job.job_type !== "regenerate_artifact") {
+    throw new Error("Regeneration job not found.");
+  }
+
+  try {
+    await runRegenerationJob(job, executionMode);
+  } catch (error) {
+    await updateAiJob(job.id, {
+      status: "failed",
+      stage: "completed",
+      error: error instanceof Error ? error.message : "Artifact regeneration failed.",
+      finished_at: new Date().toISOString(),
+      provider_metadata: {
+        ...(job.provider_metadata ?? {}),
+        execution_mode: executionMode,
+        failed_stage: "regenerate",
+      },
+    });
+    throw error;
   }
 }
 
@@ -1161,6 +1288,15 @@ export async function queueMeetingProcessing(args: QueueMeetingProcessingArgs) {
 
   if (getAiPipelineMode() === "railway_remote") {
     try {
+      await updateAiJob(job.id, {
+        provider_metadata: {
+          ...providerMetadata,
+          execution_mode: "railway_remote",
+          remote_dispatch: {
+            queuedAt: new Date().toISOString(),
+          },
+        },
+      });
       await queueRemoteJob("/jobs/transcribe", {
         jobId: job.id,
         meetingId: args.meetingId,
@@ -1173,22 +1309,28 @@ export async function queueMeetingProcessing(args: QueueMeetingProcessingArgs) {
         mode: "railway_remote" as const,
       };
     } catch (error) {
-      console.warn("[workspace] Remote AI queue failed, falling back inline.", error);
+      const fallbackAllowed = getAiInlineFallbackAllowed();
+
+      console.warn(
+        fallbackAllowed
+          ? "[workspace] Remote AI queue failed, falling back inline."
+          : "[workspace] Remote AI queue failed without inline fallback.",
+        error
+      );
+
+      if (!fallbackAllowed) {
+        await markRemoteDispatchFailure({
+          job,
+          error,
+          failedStage: "queue_remote",
+        });
+        await updateMeetingStatus(args.meetingId, args.userId, "failed");
+        throw error;
+      }
     }
   }
 
-  try {
-    await runInlineTranscriptionJob(job);
-  } catch (error) {
-    await updateAiJob(job.id, {
-      status: "failed",
-      stage: "completed",
-      error: error instanceof Error ? error.message : "AI processing failed.",
-      finished_at: new Date().toISOString(),
-    });
-    await updateMeetingStatus(args.meetingId, args.userId, "failed");
-    throw error;
-  }
+  await executeTranscriptionJob(job.id, "inline_legacy");
 
   return {
     jobId: job.id,
@@ -1229,6 +1371,15 @@ export async function queueArtifactRegeneration(args: QueueArtifactRegenerationA
 
   if (getAiPipelineMode() === "railway_remote") {
     try {
+      await updateAiJob(job.id, {
+        provider_metadata: {
+          ...(job.provider_metadata ?? {}),
+          execution_mode: "railway_remote",
+          remote_dispatch: {
+            queuedAt: new Date().toISOString(),
+          },
+        },
+      });
       await queueRemoteJob("/jobs/regenerate", {
         jobId: job.id,
         meetingId: args.meetingId,
@@ -1242,21 +1393,27 @@ export async function queueArtifactRegeneration(args: QueueArtifactRegenerationA
         mode: "railway_remote" as const,
       };
     } catch (caughtError) {
-      console.warn("[workspace] Remote regenerate failed, falling back inline.", caughtError);
+      const fallbackAllowed = getAiInlineFallbackAllowed();
+
+      console.warn(
+        fallbackAllowed
+          ? "[workspace] Remote regenerate failed, falling back inline."
+          : "[workspace] Remote regenerate failed without inline fallback.",
+        caughtError
+      );
+
+      if (!fallbackAllowed) {
+        await markRemoteDispatchFailure({
+          job,
+          error: caughtError,
+          failedStage: "regenerate_remote",
+        });
+        throw caughtError;
+      }
     }
   }
 
-  try {
-    await runInlineRegenerationJob(job);
-  } catch (error) {
-    await updateAiJob(job.id, {
-      status: "failed",
-      stage: "completed",
-      error: error instanceof Error ? error.message : "Artifact regeneration failed.",
-      finished_at: new Date().toISOString(),
-    });
-    throw error;
-  }
+  await executeRegenerationJob(job.id, "inline_legacy");
 
   return {
     jobId: job.id,

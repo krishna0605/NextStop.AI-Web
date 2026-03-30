@@ -203,6 +203,7 @@ export interface WorkspaceOverview {
   google: IntegrationRecord | null;
   notion: IntegrationRecord | null;
   meetings: WebMeetingRecord[];
+  latestAiJob: AiJobRecord | null;
   findingsByMeetingId: Record<string, MeetingFindingsRecord | undefined>;
   exportsByMeetingId: Record<string, MeetingExportRecord[]>;
   aiStatusByMeetingId: Record<string, AiStatusSnapshot | undefined>;

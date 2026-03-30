@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { useWorkspaceCaptureController } from "@/components/workspace/WorkspaceCaptureIsland";
 import { resolvePublicApiUrl } from "@/lib/public-backend";
 import { createClient } from "@/lib/supabase-browser";
 import type { IntegrationRecord } from "@/lib/workspace";
@@ -57,6 +58,7 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = createClient();
+  const { openCaptureControls } = useWorkspaceCaptureController();
 
   const reconnectMessage =
     (record?.status === "error" || record?.status === "reconnect_required") &&
@@ -535,9 +537,13 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
             <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Upcoming meetings</p>
             <h2 className="mt-1 text-xl font-semibold text-white">Meetings in the selected calendar</h2>
           </div>
-          <Link href="#workspace-capture-island" className="brand-link text-sm text-zinc-400">
+          <button
+            type="button"
+            onClick={openCaptureControls}
+            className="brand-link text-sm text-zinc-400"
+          >
             Open capture controls
-          </Link>
+          </button>
         </div>
 
         {loadingOverview ? (

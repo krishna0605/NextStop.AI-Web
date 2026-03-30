@@ -199,6 +199,7 @@ export const smokeWorkspaceOverview: WorkspaceOverview = {
     },
     smokeReadyMeeting,
   ],
+  latestAiJob: smokeAiStatusProcessing.latestJob,
   findingsByMeetingId: {
     [smokeReadyMeeting.id]: smokeReadyFindings,
   },

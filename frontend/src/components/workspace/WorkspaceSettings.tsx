@@ -13,14 +13,19 @@ import {
 import Link from "next/link";
 import { useState } from "react";
 
-import type { IntegrationRecord } from "@/lib/workspace";
+import type { AiJobRecord, IntegrationRecord } from "@/lib/workspace";
 
 const AI_MODE_KEY = "nextstop-ai-review-mode";
+
+function getRecord(value: unknown) {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
 
 export function WorkspaceSettings({
   providerStatus,
   google,
   notion,
+  latestAiJob,
 }: {
   providerStatus: {
     deepgramConfigured: boolean;
@@ -38,6 +43,7 @@ export function WorkspaceSettings({
   };
   google: IntegrationRecord | null;
   notion: IntegrationRecord | null;
+  latestAiJob: AiJobRecord | null;
 }) {
   const [aiMode, setAiMode] = useState<"simple" | "advanced">(() => {
     if (typeof window === "undefined") {
@@ -53,13 +59,28 @@ export function WorkspaceSettings({
     window.localStorage.setItem(AI_MODE_KEY, nextMode);
   }
 
+  const latestExecutionMode =
+    latestAiJob?.provider_metadata &&
+    typeof latestAiJob.provider_metadata === "object" &&
+    typeof latestAiJob.provider_metadata.execution_mode === "string"
+      ? latestAiJob.provider_metadata.execution_mode
+      : null;
+  const latestRemoteDispatchError = (() => {
+    const providerMetadata = getRecord(latestAiJob?.provider_metadata);
+    const remoteDispatch = getRecord(providerMetadata?.remote_dispatch);
+    return typeof remoteDispatch?.error === "string" ? remoteDispatch.error : null;
+  })();
+  const latestJobError = latestAiJob?.error ?? latestRemoteDispatchError ?? null;
+
   const cards = [
     {
       title: "AI processing",
       description:
         providerStatus.aiCoreConfigured
-          ? `Railway queue is configured in ${providerStatus.aiPipelineMode} mode, Deepgram transcription is ${providerStatus.deepgramConfigured ? "ready" : "still pending"}, and downstream summary generation stays server-managed.`
-          : "The web app will use the inline fallback path until the remote transcription worker is configured.",
+          ? providerStatus.aiPipelineMode === "railway_remote"
+            ? `Railway queue mode is active, remote workers are expected to process jobs, and review screens will show the latest execution mode or failure if a handoff breaks.`
+            : `Inline legacy mode is active, so this web app performs transcription and downstream findings directly.`
+          : "AI routing is not fully configured yet, so new captures may not process until the queue and shared secret are set.",
       icon: PlugZap,
       href: "#ai-pipeline",
     },
@@ -211,13 +232,27 @@ export function WorkspaceSettings({
             <div>
               <h2 className="text-xl font-semibold text-white">AI pipeline boundary</h2>
               <p className="mt-3 text-sm leading-7 text-zinc-400">
-                Mode: {providerStatus.aiPipelineMode}. AI core is {providerStatus.aiCoreConfigured ? "configured" : "not configured"}.
-                Deepgram ASR is {providerStatus.deepgramConfigured ? "available" : "unavailable"}, and OpenAI stays{" "}
+                Mode: {providerStatus.aiPipelineMode}. AI core is{" "}
+                {providerStatus.aiCoreConfigured ? "configured" : "not configured"}. Deepgram ASR is{" "}
+                {providerStatus.deepgramConfigured ? "available" : "unavailable"}, and OpenAI stays{" "}
                 {providerStatus.openAiConfigured ? "available" : "unavailable"} for downstream summaries or regeneration only.
               </p>
               <p className="mt-3 text-sm leading-7 text-zinc-400">
-                Hugging Face endpoints are {providerStatus.huggingFaceConfigured ? "configured" : "not configured"} for future diarization or specialty inference.
-                Model routing remains server-managed so the workspace stays predictable for users.
+                {providerStatus.aiPipelineMode === "railway_remote"
+                  ? "Remote queue mode should hand work to Railway and then back into the shared web AI routes. If a worker handoff fails, the review page will surface the latest execution mode and error."
+                  : "Inline mode keeps the whole pipeline inside the web app and is useful as the baseline fallback path while remote infrastructure is being repaired."}
+              </p>
+              <p className="mt-3 text-sm leading-7 text-zinc-400">
+                Latest execution mode: {latestExecutionMode ?? "awaiting first job"}. Latest job status:{" "}
+                {latestAiJob?.status ?? "none yet"}.
+              </p>
+              {latestJobError ? (
+                <p className="mt-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm leading-7 text-red-100">
+                  Latest AI error: {latestJobError}
+                </p>
+              ) : null}
+              <p className="mt-3 text-sm leading-7 text-zinc-400">
+                Hugging Face endpoints are {providerStatus.huggingFaceConfigured ? "configured" : "not configured"} for future diarization or specialty inference. Model routing remains server-managed so the workspace stays predictable for users.
               </p>
             </div>
           </div>

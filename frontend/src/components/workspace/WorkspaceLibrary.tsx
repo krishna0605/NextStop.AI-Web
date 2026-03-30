@@ -16,6 +16,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
+import { useWorkspaceCaptureController } from "@/components/workspace/WorkspaceCaptureIsland";
 import type { WorkspaceOverview } from "@/lib/workspace";
 import { formatWorkspaceDate, MEETING_SOURCE_LABELS, MEETING_STATUS_COPY } from "@/lib/workspace";
 
@@ -45,25 +46,10 @@ function originLabel(originPlatform: string | null | undefined) {
   return originPlatform === "desktop" ? "Desktop" : "Web";
 }
 
-function dispatchOpenCaptureIsland() {
-  window.dispatchEvent(new CustomEvent("nextstop:open-capture-island"));
-  window.location.hash = "workspace-capture-island";
-}
-
-function dispatchCaptureTarget(detail: {
-  meetingId: string;
-  title: string;
-  sourceType: "google_meet" | "browser_tab";
-  googleEventId?: string | null;
-  meetUrl?: string | null;
-}) {
-  window.dispatchEvent(new CustomEvent("nextstop:capture-target", { detail }));
-  window.location.hash = "workspace-capture-island";
-}
-
 export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) {
   const router = useRouter();
   const [search, setSearch] = useState("");
+  const { openCaptureControls, setCaptureTarget } = useWorkspaceCaptureController();
 
   useEffect(() => {
     const hasPendingMeetings = overview.meetings.some((meeting) =>
@@ -134,7 +120,7 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
             <FileSearch className="mx-auto h-10 w-10 text-zinc-600" />
             <p className="mt-4 text-lg font-medium text-white">No matching meetings yet</p>
             <p className="mt-2 text-sm text-zinc-500">
-              Create a Google Meet or start a browser capture from the floating logo controls to
+              Create a Google Meet or start a browser capture from the sidebar controls to
               populate this library.
             </p>
           </div>
@@ -281,7 +267,7 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
                       <Button
                         radius="full"
                         onPress={() =>
-                          dispatchCaptureTarget({
+                          setCaptureTarget({
                             meetingId: meeting.id,
                             title: meeting.title,
                             sourceType: meeting.source_type === "google_meet" ? "google_meet" : "browser_tab",
@@ -300,7 +286,7 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
                   {isCapturing ? (
                     <Button
                       radius="full"
-                      onPress={dispatchOpenCaptureIsland}
+                      onPress={openCaptureControls}
                       className="brand-button-secondary h-10 px-5 font-semibold"
                       startContent={<Radio className="h-4 w-4" />}
                     >

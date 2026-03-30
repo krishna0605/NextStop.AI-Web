@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { useWorkspaceCaptureController } from "@/components/workspace/WorkspaceCaptureIsland";
 import type { AccessState, PlanCode } from "@/lib/billing";
 import { PLAN_DETAILS } from "@/lib/billing";
 import type { WorkspaceOverview as WorkspaceOverviewData } from "@/lib/workspace";
@@ -30,6 +31,7 @@ export function WorkspaceOverview({
   overview: WorkspaceOverviewData;
 }) {
   const planInfo = PLAN_DETAILS[planCode];
+  const { openCaptureControls } = useWorkspaceCaptureController();
   const integrationCards = [
     {
       label: "Google Workspace",
@@ -104,7 +106,7 @@ export function WorkspaceOverview({
               </h1>
               <p className="mt-3 max-w-2xl text-base leading-7 text-zinc-300">
                 NextStop keeps the workflow simple: connect your tools, start capture from the
-                floating controller, and keep only the final findings bundle that matters.
+                sidebar controls, and keep only the final findings bundle that matters.
               </p>
               <div className="mt-5 flex flex-wrap gap-3 text-sm text-zinc-300">
                 <span className="brand-surface-chip rounded-full border border-white/10 bg-white/5 px-3 py-1.5">
@@ -149,11 +151,13 @@ export function WorkspaceOverview({
                   Manage Plan
                 </Button>
               </Link>
-              <Link href="#workspace-capture-island">
-                <Button radius="full" className="brand-button-secondary h-12 w-full font-semibold">
+              <Button
+                radius="full"
+                onPress={openCaptureControls}
+                className="brand-button-secondary h-12 w-full font-semibold"
+              >
                   Open Capture Controls
-                </Button>
-              </Link>
+              </Button>
             </div>
           </div>
         </div>
@@ -206,7 +210,7 @@ export function WorkspaceOverview({
             {[
               "Connect Google if you want instant Meet creation or scheduled meetings.",
               "Connect Notion if you want one-click export of findings to a page or database.",
-              "Use the floating capture controller to start, pause, resume, and end a browser-tab capture.",
+              "Use the sidebar capture controls to start, pause, resume, and end a browser-tab capture.",
               "Review the findings in Library after capture finishes.",
             ].map((item) => (
               <div
@@ -281,7 +285,7 @@ export function WorkspaceOverview({
             <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
               <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Recommended flow</p>
               <p className="mt-3 text-sm leading-7 text-zinc-300">
-                First connect Google and Notion, then use the floating controller for capture,
+                First connect Google and Notion, then use the sidebar capture controls,
                 and finally open Library to review and export findings.
               </p>
             </div>
@@ -295,19 +299,18 @@ export function WorkspaceOverview({
                   Open Library
                 </Button>
               </Link>
-              <Link href="#workspace-capture-island" className="block">
-                <Button
-                  radius="full"
-                  className="brand-button-primary h-11 w-full font-semibold"
-                  endContent={<ArrowRight className="h-4 w-4" />}
-                >
-                  Open Capture Controls
-                </Button>
-              </Link>
+              <Button
+                radius="full"
+                onPress={openCaptureControls}
+                className="brand-button-primary h-11 w-full font-semibold"
+                endContent={<ArrowRight className="h-4 w-4" />}
+              >
+                Open Capture Controls
+              </Button>
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-black/10 px-4 py-3 text-sm leading-6 text-zinc-400">
-              The floating controller stays available across Dashboard, Library, Google, Notion,
+              The sidebar capture panel stays available across Dashboard, Library, Google, Notion,
               Settings, and Review, so you do not need a separate capture page.
             </div>
           </div>

@@ -9,6 +9,7 @@ export default async function WorkspaceSettingsPage() {
       providerStatus={overview.providerStatus}
       google={overview.google}
       notion={overview.notion}
+      latestAiJob={overview.latestAiJob}
     />
   );
 }

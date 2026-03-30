@@ -134,6 +134,34 @@ async function queryMeetings(
   }
 }
 
+async function queryLatestAiJob(
+  client: ServerClient | ReturnType<typeof createAdminClient>,
+  userId: string
+) {
+  try {
+    const { data, error } = await client
+      .from("ai_jobs")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    return (data as AiJobRecord | null) ?? null;
+  } catch (error) {
+    if (isWorkspaceSchemaError(error)) {
+      logWorkspaceFallback("queryLatestAiJob", error);
+      return null;
+    }
+
+    throw error;
+  }
+}
+
 async function queryFindingsForMeetings(
   client: ServerClient | ReturnType<typeof createAdminClient>,
   meetingIds: string[]
@@ -366,10 +394,11 @@ export async function loadWorkspaceOverview(
   const admin = getAdminClient();
   const queryClient = admin ?? supabase;
 
-  const [google, notion, meetings] = await Promise.all([
+  const [google, notion, meetings, latestAiJob] = await Promise.all([
     queryMaybeSingle<IntegrationRecord>(queryClient, "integrations_google", user.id),
     queryMaybeSingle<IntegrationRecord>(queryClient, "integrations_notion", user.id),
     queryMeetings(queryClient, user.id),
+    queryLatestAiJob(queryClient, user.id),
   ]);
 
   const meetingIds = meetings.map((meeting) => meeting.id);
@@ -386,6 +415,7 @@ export async function loadWorkspaceOverview(
     google,
     notion,
     meetings,
+    latestAiJob,
     findingsByMeetingId: Object.fromEntries(
       findings.map((finding) => [finding.meeting_id, finding])
     ),
