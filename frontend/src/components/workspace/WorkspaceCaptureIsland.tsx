@@ -4,7 +4,6 @@ import { Button } from "@heroui/react";
 import {
   AlertCircle,
   CalendarPlus2,
-  ChevronDown,
   CirclePause,
   CirclePlay,
   CircleStop,
@@ -25,7 +24,6 @@ import {
   type ReactNode,
 } from "react";
 
-import { BrandLogoIcon } from "@/components/BrandLogoIcon";
 import { resolvePublicApiUrl } from "@/lib/public-backend";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
@@ -85,14 +83,12 @@ type WorkspaceCaptureControllerValue = {
   activeMeeting: ActiveMeetingRef | null;
   pendingMeeting: MeetingTargetRef | null;
   busyAction: "google" | "notion" | null;
-  panelOpen: boolean;
   currentTitle: string | null;
   canPause: boolean;
   canEnd: boolean;
   canRetryFinalize: boolean;
   isBusy: boolean;
   openCaptureControls: () => void;
-  togglePanelOpen: () => void;
   setCaptureTarget: (detail: MeetingTargetRef) => void;
   handleStart: () => Promise<void>;
   handlePauseResume: () => void;
@@ -172,7 +168,6 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
   const [activeMeeting, setActiveMeeting] = useState<ActiveMeetingRef | null>(null);
   const [pendingMeeting, setPendingMeeting] = useState<MeetingTargetRef | null>(null);
   const [busyAction, setBusyAction] = useState<"google" | "notion" | null>(null);
-  const [panelOpen, setPanelOpen] = useState(true);
 
   const displayStreamRef = useRef<MediaStream | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
@@ -203,13 +198,7 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
       );
       if (persisted.captureState !== "idle") {
         setCaptureState("failed");
-        setPanelOpen(true);
       }
-    } else if (
-      typeof window !== "undefined" &&
-      window.matchMedia("(max-width: 1024px)").matches
-    ) {
-      setPanelOpen(false);
     }
     restoredSessionRef.current = true;
     void refreshContext();
@@ -254,12 +243,6 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
       1000
     );
     return () => window.clearInterval(interval);
-  }, [captureState]);
-
-  useEffect(() => {
-    if (captureState === "processing" || captureState === "failed") {
-      setPanelOpen(true);
-    }
   }, [captureState]);
 
   useEffect(() => () => void releaseMedia(), []);
@@ -426,7 +409,6 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
   }
 
   function openCaptureControls() {
-    setPanelOpen(true);
     setError(null);
   }
 
@@ -434,7 +416,6 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
     setPendingMeeting(detail);
     setNotice(`Ready to capture "${detail.title}". Click Start when the meeting tab is open.`);
     setError(null);
-    setPanelOpen(true);
   }
 
   async function handleStart() {
@@ -445,7 +426,6 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
     ) {
       return;
     }
-    setPanelOpen(true);
     setCaptureState("granting");
     setError(null);
     setNotice(null);
@@ -519,7 +499,6 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
       setError("Start a session first before trying to end it.");
       return;
     }
-    setPanelOpen(true);
     setCaptureState("processing");
     setError(null);
     setNotice(null);
@@ -599,7 +578,6 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
     setBusyAction("google");
     setError(null);
     setNotice(null);
-    setPanelOpen(true);
     try {
       const response = await fetch(resolvePublicApiUrl("/api/workspace/google/instant-meet"), {
         method: "POST",
@@ -650,7 +628,6 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
     setBusyAction("notion");
     setError(null);
     setNotice(null);
-    setPanelOpen(true);
     try {
       const response = await fetch(
         resolvePublicApiUrl("/api/workspace/meetings/latest/export/notion"),
@@ -693,14 +670,12 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
       activeMeeting,
       pendingMeeting,
       busyAction,
-      panelOpen,
       currentTitle,
       canPause,
       canEnd,
       canRetryFinalize,
       isBusy,
       openCaptureControls,
-      togglePanelOpen: () => setPanelOpen((current) => !current),
       setCaptureTarget,
       handleStart,
       handlePauseResume,
@@ -724,7 +699,6 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
       isBusy,
       micLive,
       notice,
-      panelOpen,
       pendingMeeting,
       tabShared,
     ]
@@ -763,13 +737,11 @@ export function WorkspaceCaptureSidebarPanel({
     error,
     notice,
     busyAction,
-    panelOpen,
     currentTitle,
     canPause,
     canEnd,
     canRetryFinalize,
     isBusy,
-    togglePanelOpen,
     handleStart,
     handlePauseResume,
     handleEnd,
@@ -786,184 +758,158 @@ export function WorkspaceCaptureSidebarPanel({
     <section
       className={`rounded-[1.5rem] border border-white/10 bg-black/25 p-3 backdrop-blur-xl ${className}`.trim()}
     >
-      <button
-        type="button"
-        onClick={togglePanelOpen}
-        className="flex w-full items-center gap-3 rounded-[1rem] border border-white/10 bg-white/5 px-3 py-2.5 text-left transition hover:bg-white/10"
-        aria-expanded={panelOpen}
-      >
-        <div className="relative shrink-0">
-          <BrandLogoIcon className="h-10 w-10 rounded-[0.9rem]" />
-          {(captureState === "recording" || captureState === "paused") && (
-            <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-red-500 ring-2 ring-black" />
-          )}
+      <div className="space-y-3">
+        <div className="space-y-2">
+          <Button
+            radius="lg"
+            onPress={handleInstantGoogleMeet}
+            isLoading={busyAction === "google"}
+            className="brand-button-secondary h-10 w-full justify-start px-3 text-sm font-semibold"
+            startContent={
+              busyAction === "google" ? undefined : <CalendarPlus2 className="h-4 w-4" />
+            }
+          >
+            Google Meet
+          </Button>
+          <Button
+            radius="lg"
+            onPress={handleStart}
+            isDisabled={captureState === "recording" || captureState === "paused" || isBusy}
+            className="brand-button-primary h-10 w-full justify-start px-3 text-sm font-semibold"
+            startContent={
+              captureState === "granting" ? undefined : <CirclePlay className="h-4 w-4" />
+            }
+          >
+            {captureState === "granting" ? "Starting..." : "Start"}
+          </Button>
+          <Button
+            radius="lg"
+            onPress={handlePauseResume}
+            isDisabled={!canPause}
+            className="brand-button-secondary h-10 w-full justify-start px-3 text-sm font-semibold"
+            startContent={
+              captureState === "paused" ? (
+                <CirclePlay className="h-4 w-4" />
+              ) : (
+                <CirclePause className="h-4 w-4" />
+              )
+            }
+          >
+            {captureState === "paused" ? "Resume" : "Pause"}
+          </Button>
+          <Button
+            radius="lg"
+            onPress={handleEnd}
+            isDisabled={!canEnd}
+            isLoading={captureState === "processing"}
+            className="brand-button-secondary h-10 w-full justify-start px-3 text-sm font-semibold"
+            startContent={
+              captureState === "processing" ? undefined : <CircleStop className="h-4 w-4" />
+            }
+          >
+            {captureState === "processing" ? "Ending..." : "End"}
+          </Button>
+          <Button
+            radius="lg"
+            onPress={handleSyncToNotion}
+            isLoading={busyAction === "notion"}
+            isDisabled={captureState === "processing"}
+            className="brand-button-secondary h-10 w-full justify-start px-3 text-sm font-semibold"
+            startContent={
+              busyAction === "notion" ? undefined : <NotebookTabs className="h-4 w-4" />
+            }
+          >
+            Notion
+          </Button>
+          {captureState === "failed" ? (
+            <>
+              <Button
+                radius="lg"
+                onPress={handleRetryFinalize}
+                isDisabled={!canRetryFinalize}
+                className="brand-button-secondary h-10 w-full justify-start px-3 text-sm font-semibold"
+                startContent={<RotateCcw className="h-4 w-4" />}
+              >
+                Retry
+              </Button>
+              <Button
+                radius="lg"
+                onPress={() => void handleDiscardFailedSession()}
+                className="brand-button-secondary h-10 w-full justify-start px-3 text-sm font-semibold"
+                startContent={<Trash2 className="h-4 w-4" />}
+              >
+                Discard
+              </Button>
+            </>
+          ) : null}
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">
-            Capture & Integrations
-          </p>
-          <p className="truncate text-sm font-semibold text-white">
-            {currentTitle ??
-              (captureState === "processing"
-                ? "Processing capture"
-                : "Ready to capture")}
-          </p>
-        </div>
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 text-zinc-400 transition-transform ${
-            panelOpen ? "rotate-180" : ""
-          }`}
-        />
-      </button>
 
-      {panelOpen ? (
-        <div className="mt-3 space-y-3">
-          <div className="space-y-2">
-            <Button
-              radius="lg"
-              onPress={handleInstantGoogleMeet}
-              isLoading={busyAction === "google"}
-              className="brand-button-secondary h-10 w-full justify-start px-3 text-sm font-semibold"
-              startContent={
-                busyAction === "google" ? undefined : <CalendarPlus2 className="h-4 w-4" />
-              }
-            >
-              Google Meet
-            </Button>
-            <Button
-              radius="lg"
-              onPress={handleStart}
-              isDisabled={captureState === "recording" || captureState === "paused" || isBusy}
-              className="brand-button-primary h-10 w-full justify-start px-3 text-sm font-semibold"
-              startContent={
-                captureState === "granting" ? undefined : <CirclePlay className="h-4 w-4" />
-              }
-            >
-              {captureState === "granting" ? "Starting..." : "Start"}
-            </Button>
-            <Button
-              radius="lg"
-              onPress={handlePauseResume}
-              isDisabled={!canPause}
-              className="brand-button-secondary h-10 w-full justify-start px-3 text-sm font-semibold"
-              startContent={
-                captureState === "paused" ? (
-                  <CirclePlay className="h-4 w-4" />
-                ) : (
-                  <CirclePause className="h-4 w-4" />
-                )
-              }
-            >
-              {captureState === "paused" ? "Resume" : "Pause"}
-            </Button>
-            <Button
-              radius="lg"
-              onPress={handleEnd}
-              isDisabled={!canEnd}
-              isLoading={captureState === "processing"}
-              className="brand-button-secondary h-10 w-full justify-start px-3 text-sm font-semibold"
-              startContent={
-                captureState === "processing" ? undefined : <CircleStop className="h-4 w-4" />
-              }
-            >
-              {captureState === "processing" ? "Ending..." : "End"}
-            </Button>
-            <Button
-              radius="lg"
-              onPress={handleSyncToNotion}
-              isLoading={busyAction === "notion"}
-              isDisabled={captureState === "processing"}
-              className="brand-button-secondary h-10 w-full justify-start px-3 text-sm font-semibold"
-              startContent={
-                busyAction === "notion" ? undefined : <NotebookTabs className="h-4 w-4" />
-              }
-            >
-              Notion
-            </Button>
+        {currentTitle ? (
+          <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-300">
+            {currentTitle}
+          </div>
+        ) : null}
+
+        <div className="space-y-2 text-xs">
+          <div className={`rounded-xl border px-3 py-2 ${tabChip.className}`}>
+            {tabChip.label}
+          </div>
+          <div className={`rounded-xl border px-3 py-2 ${micChip.className}`}>
+            {micChip.label}
+          </div>
+          <div
+            className={`rounded-xl border px-3 py-2 ${
+              captureState === "processing"
+                ? "border-amber-400/20 bg-amber-400/10 text-amber-50"
+                : captureState === "recording" || captureState === "paused"
+                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-100"
+                  : captureState === "failed"
+                    ? "border-red-500/20 bg-red-500/10 text-red-100"
+                    : "border-white/10 bg-white/5 text-zinc-400"
+            }`}
+          >
+            {captureState === "processing"
+              ? "Processing"
+              : captureState === "failed"
+                ? "Needs attention"
+                : formatElapsed(elapsedSeconds)}
+          </div>
+          <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-zinc-400">
             {captureState === "failed" ? (
               <>
-                <Button
-                  radius="lg"
-                  onPress={handleRetryFinalize}
-                  isDisabled={!canRetryFinalize}
-                  className="brand-button-secondary h-10 w-full justify-start px-3 text-sm font-semibold"
-                  startContent={<RotateCcw className="h-4 w-4" />}
-                >
-                  Retry
-                </Button>
-                <Button
-                  radius="lg"
-                  onPress={() => void handleDiscardFailedSession()}
-                  className="brand-button-secondary h-10 w-full justify-start px-3 text-sm font-semibold"
-                  startContent={<Trash2 className="h-4 w-4" />}
-                >
-                  Discard
-                </Button>
+                <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-300" />
+                <span>Resolve failed session</span>
               </>
-            ) : null}
+            ) : captureState === "processing" ? (
+              <>
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                <span>Uploading and queueing transcription</span>
+              </>
+            ) : context.googleConnected ? (
+              <>
+                <Radio className="h-3.5 w-3.5 shrink-0" />
+                <span>Google ready</span>
+              </>
+            ) : (
+              <>
+                <Radio className="h-3.5 w-3.5 shrink-0" />
+                <span>Connect Google for instant Meet</span>
+              </>
+            )}
           </div>
-
-          <div className="space-y-2 text-xs">
-            <div className={`rounded-xl border px-3 py-2 ${tabChip.className}`}>
-              {tabChip.label}
-            </div>
-            <div className={`rounded-xl border px-3 py-2 ${micChip.className}`}>
-              {micChip.label}
-            </div>
-            <div
-              className={`rounded-xl border px-3 py-2 ${
-                captureState === "processing"
-                  ? "border-amber-400/20 bg-amber-400/10 text-amber-50"
-                  : captureState === "recording" || captureState === "paused"
-                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-100"
-                    : captureState === "failed"
-                      ? "border-red-500/20 bg-red-500/10 text-red-100"
-                      : "border-white/10 bg-white/5 text-zinc-400"
-              }`}
-            >
-              {captureState === "processing"
-                ? "Processing"
-                : captureState === "failed"
-                  ? "Needs attention"
-                  : formatElapsed(elapsedSeconds)}
-            </div>
-            <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-zinc-400">
-              {captureState === "failed" ? (
-                <>
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0 text-red-300" />
-                  <span>Resolve failed session</span>
-                </>
-              ) : captureState === "processing" ? (
-                <>
-                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                  <span>Uploading and queueing transcription</span>
-                </>
-              ) : context.googleConnected ? (
-                <>
-                  <Radio className="h-3.5 w-3.5 shrink-0" />
-                  <span>Google ready</span>
-                </>
-              ) : (
-                <>
-                  <Radio className="h-3.5 w-3.5 shrink-0" />
-                  <span>Connect Google for instant Meet</span>
-                </>
-              )}
-            </div>
-          </div>
-
-          {notice ? (
-            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-              {notice}
-            </div>
-          ) : null}
-          {error ? (
-            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-              {error}
-            </div>
-          ) : null}
         </div>
-      ) : null}
+
+        {notice ? (
+          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+            {notice}
+          </div>
+        ) : null}
+        {error ? (
+          <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+            {error}
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }

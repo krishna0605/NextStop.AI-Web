@@ -18,7 +18,13 @@ function isFrontendApiPath(path: string) {
 }
 
 export function resolveFrontendApiUrl(path: string) {
-  return normalizePath(path);
+  const normalizedPath = normalizePath(path);
+
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return new URL(normalizedPath, window.location.origin).toString();
+  }
+
+  return normalizedPath;
 }
 
 export function resolveBackendApiUrl(path: string) {
