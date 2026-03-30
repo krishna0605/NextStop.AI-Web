@@ -115,6 +115,7 @@ async function queryMeetings(
       .from("web_meetings")
       .select("*")
       .eq("user_id", userId)
+      .order("started_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .limit(limit);
 

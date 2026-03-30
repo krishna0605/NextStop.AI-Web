@@ -41,6 +41,10 @@ function readMetadataValue(metadata: unknown, key: string) {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+function originLabel(originPlatform: string | null | undefined) {
+  return originPlatform === "desktop" ? "Desktop" : "Web";
+}
+
 function dispatchOpenCaptureIsland() {
   window.dispatchEvent(new CustomEvent("nextstop:open-capture-island"));
   window.location.hash = "workspace-capture-island";
@@ -80,7 +84,7 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
     return overview.meetings.filter((meeting) => {
       const summary = overview.findingsByMeetingId[meeting.id]?.summary_short ?? "";
       const aiStatus = overview.aiStatusByMeetingId[meeting.id]?.latestJob?.stage ?? "";
-      const haystack = `${meeting.title} ${summary} ${meeting.source_type} ${meeting.status} ${aiStatus}`.toLowerCase();
+      const haystack = `${meeting.title} ${summary} ${meeting.source_type} ${meeting.origin_platform ?? "web"} ${meeting.status} ${aiStatus}`.toLowerCase();
       return !normalized || haystack.includes(normalized);
     });
   }, [overview, search]);
@@ -144,6 +148,7 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
             const eventUrl = readMetadataValue(meeting.session_metadata, "event_url");
             const scheduledStart = readMetadataValue(meeting.session_metadata, "scheduled_start");
             const sourceLabel = MEETING_SOURCE_LABELS[meeting.source_type];
+            const platformLabel = originLabel(meeting.origin_platform);
             const primaryDate =
               meeting.status === "scheduled" || meeting.status === "draft"
                 ? formatWorkspaceDate(scheduledStart)
@@ -174,6 +179,9 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
                       <h2 className="truncate text-xl font-semibold text-white">{meeting.title}</h2>
                       <span className={`rounded-full border px-2.5 py-1 text-xs ${toneClass(status.tone)}`}>
                         {status.label}
+                      </span>
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-200">
+                        {platformLabel}
                       </span>
                       <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-xs text-zinc-300">
                         {sourceLabel}
