@@ -301,7 +301,10 @@ export function normalizeTags(value: unknown): string[] {
   return [];
 }
 
-export function formatWorkspaceDate(dateString: string | null | undefined) {
+function formatWorkspaceDateWithOptions(
+  dateString: string | null | undefined,
+  options?: { timeZone?: string }
+) {
   if (!dateString) {
     return "Not set";
   }
@@ -317,7 +320,16 @@ export function formatWorkspaceDate(dateString: string | null | undefined) {
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: options?.timeZone,
   }).format(date);
+}
+
+export function formatWorkspaceDate(dateString: string | null | undefined) {
+  return formatWorkspaceDateWithOptions(dateString);
+}
+
+export function formatWorkspaceDateStable(dateString: string | null | undefined) {
+  return formatWorkspaceDateWithOptions(dateString, { timeZone: "UTC" });
 }
 
 export function compactList(value: string[] | null | undefined, fallback: string) {

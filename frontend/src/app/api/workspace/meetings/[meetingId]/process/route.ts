@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 import { queueMeetingProcessing } from "@/lib/ai-pipeline";
-import { internalServerErrorResponse } from "@/lib/http";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient } from "@/lib/supabase-server";
 
@@ -65,10 +64,22 @@ export async function POST(
 
     return NextResponse.json(payload);
   } catch (error) {
-    return internalServerErrorResponse(
-      "Unable to queue AI processing for this meeting.",
-      error,
-      "[workspace] Failed to queue meeting processing"
+    if (error instanceof Error) {
+      console.error("[workspace] Failed to queue meeting processing", {
+        message: error.message,
+        stack: error.stack,
+      });
+
+      return NextResponse.json(
+        { error: error.message || "Unable to queue AI processing for this meeting." },
+        { status: 500 }
+      );
+    }
+
+    console.error("[workspace] Failed to queue meeting processing", error);
+    return NextResponse.json(
+      { error: "Unable to queue AI processing for this meeting." },
+      { status: 500 }
     );
   }
 }

@@ -8,13 +8,11 @@ import {
   ExternalLink,
   FileDown,
   Mail,
-  RefreshCcw,
   ShieldCheck,
-  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { deriveStructuredMeetingContent } from "@/lib/meeting-artifacts";
 import { resolvePublicApiUrl } from "@/lib/public-backend";
@@ -27,7 +25,11 @@ import type {
   TranscriptAvailability,
   WebMeetingRecord,
 } from "@/lib/workspace";
-import { formatWorkspaceDate, MEETING_SOURCE_LABELS } from "@/lib/workspace";
+import {
+  formatWorkspaceDate,
+  formatWorkspaceDateStable,
+  MEETING_SOURCE_LABELS,
+} from "@/lib/workspace";
 
 function renderList(items: string[] | null | undefined, fallback: string) {
   const normalized = items?.filter(Boolean) ?? [];
@@ -46,30 +48,24 @@ async function downloadBlob(filename: string, response: Response) {
   URL.revokeObjectURL(url);
 }
 
-function artifactLabel(artifactType: MeetingArtifactRecord["artifact_type"]) {
-  switch (artifactType) {
-    case "canonical_json":
-      return "Canonical JSON";
-    case "canonical_markdown":
-      return "Canonical Markdown";
-    case "summary":
-      return "Summary";
-    case "action_items":
-      return "Actions";
-    case "email_draft":
-      return "Email Draft";
-    default:
-      return artifactType;
-  }
-}
+function WorkspaceDateText({
+  value,
+  className = "",
+}: {
+  value: string | null | undefined;
+  className?: string;
+}) {
+  const mounted = useSyncExternalStore(
+    () => () => undefined,
+    () => true,
+    () => false
+  );
 
-function getMetadataRecord(value: unknown) {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
-
-function getMetadataString(record: Record<string, unknown>, key: string) {
-  const value = record[key];
-  return typeof value === "string" && value.trim().length > 0 ? value : null;
+  return (
+    <span className={className} suppressHydrationWarning>
+      {mounted ? formatWorkspaceDate(value) : formatWorkspaceDateStable(value)}
+    </span>
+  );
 }
 
 export function MeetingReview({
@@ -106,9 +102,7 @@ export function MeetingReview({
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
-  const [busyAction, setBusyAction] = useState<
-    "pdf" | "transcript" | "notion" | "summary" | "action_items" | "email_draft" | null
-  >(null);
+  const [busyAction, setBusyAction] = useState<"pdf" | "transcript" | "notion" | null>(null);
   const notionReady = notion?.status === "connected";
 
   const structured = useMemo(
@@ -120,59 +114,6 @@ export function MeetingReview({
       }),
     [artifacts, findings, meeting]
   );
-  const artifactRows = useMemo(
-    () =>
-      artifacts.filter((artifact) =>
-        ["summary", "action_items", "email_draft", "canonical_json", "canonical_markdown"].includes(
-          artifact.artifact_type
-        )
-      ),
-    [artifacts]
-  );
-  const modelBadges = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          artifactRows
-            .map((artifact) => artifact.source_model)
-            .concat(findings?.source_model ?? null)
-            .filter(Boolean)
-        )
-      ) as string[],
-    [artifactRows, findings?.source_model]
-  );
-  const latestJobMetadata = useMemo(
-    () => getMetadataRecord(aiStatus?.latestJob?.provider_metadata),
-    [aiStatus?.latestJob?.provider_metadata]
-  );
-  const transcriptionMetadata = useMemo(
-    () => getMetadataRecord(latestJobMetadata.transcription),
-    [latestJobMetadata]
-  );
-  const findingsMetadata = useMemo(
-    () => getMetadataRecord(latestJobMetadata.findings),
-    [latestJobMetadata]
-  );
-  const remoteDispatchMetadata = useMemo(
-    () => getMetadataRecord(latestJobMetadata.remote_dispatch),
-    [latestJobMetadata]
-  );
-  const latestExecutionMode = getMetadataString(latestJobMetadata, "execution_mode");
-  const latestFailedStage = getMetadataString(latestJobMetadata, "failed_stage");
-  const remoteDispatchQueuedAt = getMetadataString(remoteDispatchMetadata, "queuedAt");
-  const remoteDispatchError = getMetadataString(remoteDispatchMetadata, "error");
-  const latestJobError =
-    aiStatus?.latestJob?.error?.trim() || remoteDispatchError || null;
-  const runtimeStatus =
-    providerStatus.aiPipelineMode === "railway_remote"
-      ? latestExecutionMode === "railway_remote"
-        ? aiStatus?.latestJob?.status === "failed"
-          ? "Remote worker failed"
-          : "Remote worker executed"
-        : providerStatus.aiCoreConfigured
-          ? "Remote queue configured"
-          : "Remote queue misconfigured"
-      : "Inline fallback active";
 
   useEffect(() => {
     if (!aiStatus?.pending) {
@@ -195,7 +136,7 @@ export function MeetingReview({
       const response = await fetch(
         resolvePublicApiUrl(`/api/workspace/meetings/${meeting.id}/exports/pdf`),
         {
-        method: "POST",
+          method: "POST",
         }
       );
 
@@ -204,7 +145,10 @@ export function MeetingReview({
         throw new Error(payload.error ?? "Unable to generate the PDF.");
       }
 
-      await downloadBlob(`${meeting.title.replace(/\s+/g, "-").toLowerCase()}-nextstop.pdf`, response);
+      await downloadBlob(
+        `${meeting.title.replace(/\s+/g, "-").toLowerCase()}-nextstop.pdf`,
+        response
+      );
       router.refresh();
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Unable to generate the PDF.");
@@ -226,7 +170,10 @@ export function MeetingReview({
         throw new Error(payload.error ?? "Transcript is no longer available.");
       }
 
-      await downloadBlob(`${meeting.title.replace(/\s+/g, "-").toLowerCase()}-transcript.txt`, response);
+      await downloadBlob(
+        `${meeting.title.replace(/\s+/g, "-").toLowerCase()}-transcript.txt`,
+        response
+      );
       router.refresh();
     } catch (caughtError) {
       setError(
@@ -244,7 +191,7 @@ export function MeetingReview({
       const response = await fetch(
         resolvePublicApiUrl(`/api/workspace/meetings/${meeting.id}/exports/notion`),
         {
-        method: "POST",
+          method: "POST",
         }
       );
       const payload = await response.json();
@@ -263,32 +210,6 @@ export function MeetingReview({
     }
   }
 
-  async function handleRegenerate(artifactType: "summary" | "action_items" | "email_draft") {
-    setBusyAction(artifactType);
-    setError(null);
-    try {
-      const response = await fetch(
-        resolvePublicApiUrl(
-          `/api/workspace/meetings/${meeting.id}/artifacts/${artifactType}/regenerate`
-        ),
-        { method: "POST" }
-      );
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(payload.error ?? "Unable to regenerate this artifact.");
-      }
-
-      router.refresh();
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof Error ? caughtError.message : "Unable to regenerate this artifact."
-      );
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
   return (
     <div className="space-y-6">
       <motion.section
@@ -301,11 +222,13 @@ export function MeetingReview({
             <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Review</p>
             <h1 className="mt-1 text-3xl font-bold text-white">{meeting.title}</h1>
             <p className="mt-2 text-sm text-zinc-400">
-              {MEETING_SOURCE_LABELS[meeting.source_type]} | {formatWorkspaceDate(meeting.created_at)} | shared outputs, transcript-free cloud workspace
+              {MEETING_SOURCE_LABELS[meeting.source_type]} |{" "}
+              <WorkspaceDateText value={meeting.created_at} /> |{" "}
+              {transcriptAvailability.downloadEnabled
+                ? "temporary transcript available"
+                : "shared outputs, transcript-free cloud workspace"}
             </p>
-            <p className="mt-4 text-sm leading-7 text-zinc-300">
-              {structured.summaryShort}
-            </p>
+            <p className="mt-4 text-sm leading-7 text-zinc-300">{structured.summaryShort}</p>
           </div>
 
           <div className="grid w-full max-w-xl grid-cols-1 gap-3 sm:grid-cols-2">
@@ -327,7 +250,9 @@ export function MeetingReview({
               Export PDF
             </Button>
             <Link
-              href={`mailto:?subject=${encodeURIComponent(`${meeting.title} recap`)}&body=${encodeURIComponent(structured.emailDraft)}`}
+              href={`mailto:?subject=${encodeURIComponent(
+                `${meeting.title} recap`
+              )}&body=${encodeURIComponent(structured.emailDraft)}`}
             >
               <Button
                 radius="full"
@@ -343,7 +268,9 @@ export function MeetingReview({
               isDisabled={!transcriptAvailability.downloadEnabled}
               isLoading={busyAction === "transcript"}
               className="brand-button-secondary h-11 font-semibold"
-              startContent={busyAction === "transcript" ? undefined : <Download className="h-4 w-4" />}
+              startContent={
+                busyAction === "transcript" ? undefined : <Download className="h-4 w-4" />
+              }
             >
               {transcriptAvailability.status === "local_only"
                 ? "Transcript on desktop"
@@ -363,20 +290,9 @@ export function MeetingReview({
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <section className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Summary</p>
-              <h2 className="mt-1 text-xl font-semibold text-white">Structured findings</h2>
-            </div>
-            <Button
-              radius="full"
-              onPress={() => handleRegenerate("summary")}
-              isLoading={busyAction === "summary"}
-              className="brand-button-secondary h-10 font-semibold"
-              startContent={busyAction === "summary" ? undefined : <RefreshCcw className="h-4 w-4" />}
-            >
-              Regenerate summary
-            </Button>
+          <div>
+            <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Summary</p>
+            <h2 className="mt-1 text-xl font-semibold text-white">Structured findings</h2>
           </div>
 
           <div className="mt-6 space-y-4">
@@ -387,7 +303,9 @@ export function MeetingReview({
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Executive bullets</p>
+                <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">
+                  Executive bullets
+                </p>
                 <ul className="mt-3 space-y-2 text-sm text-zinc-300">
                   {renderList(structured.executiveBullets, "No executive bullets captured")}
                 </ul>
@@ -399,23 +317,15 @@ export function MeetingReview({
                 </ul>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Action items</p>
-                  <Button
-                    radius="full"
-                    onPress={() => handleRegenerate("action_items")}
-                    isLoading={busyAction === "action_items"}
-                    className="brand-button-secondary h-8 px-3 text-xs font-semibold"
-                  >
-                    Regenerate
-                  </Button>
-                </div>
+                <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Action items</p>
                 <ul className="mt-3 space-y-2 text-sm text-zinc-300">
                   {renderList(structured.actionItems, "No action items captured")}
                 </ul>
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Risks and follow-ups</p>
+                <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">
+                  Risks and follow-ups
+                </p>
                 <div className="mt-3 space-y-3 text-sm text-zinc-300">
                   <div>
                     <p className="font-medium text-white">Risks</p>
@@ -437,99 +347,13 @@ export function MeetingReview({
 
         <section className="space-y-4">
           <div className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Transcription pipeline</p>
-                <h2 className="mt-1 text-xl font-semibold text-white">
-                  {aiStatus?.latestJob ? aiStatus.latestJob.stage.replace(/_/g, " ") : "Awaiting run"}
-                </h2>
-              </div>
-              <Sparkles className="h-5 w-5 text-[var(--brand-highlight)]" />
-            </div>
-            <div className="mt-4 space-y-3 text-sm text-zinc-300">
-              <p>
-                Status: {aiStatus?.latestJob?.status ?? meeting.status} | Pipeline:{" "}
-                {providerStatus.aiPipelineMode}
-              </p>
-              <p>
-                Runtime: {runtimeStatus} | Execution: {latestExecutionMode ?? "awaiting"} |
-                Deepgram: {providerStatus.deepgramConfigured ? "configured" : "not configured"}
-              </p>
-              <p>
-                Transcription: {getMetadataString(transcriptionMetadata, "status") ?? "awaiting"} | Provider:{" "}
-                {getMetadataString(transcriptionMetadata, "sourceModel") ??
-                  (providerStatus.deepgramConfigured ? "deepgram" : "not configured")}
-              </p>
-              <p>
-                Findings: {getMetadataString(findingsMetadata, "status") ?? "awaiting"} | Provider:{" "}
-                {getMetadataString(findingsMetadata, "sourceModel") ??
-                  (providerStatus.openAiConfigured ? "openai downstream" : "not configured")}
-              </p>
-              {remoteDispatchQueuedAt ? (
-                <p>Remote dispatch queued at: {formatWorkspaceDate(remoteDispatchQueuedAt)}</p>
-              ) : null}
-              {latestFailedStage ? (
-                <p>Latest failure stage: {latestFailedStage.replace(/_/g, " ")}</p>
-              ) : null}
-              {aiStatus?.pending ? (
-                <p className="text-zinc-400">
-                  This view refreshes automatically while transcription and findings are still running.
-                </p>
-              ) : null}
-              {latestJobError ? (
-                <div className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
-                  Latest job error: {latestJobError}
-                </div>
-              ) : null}
-              {modelBadges.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {modelBadges.map((badge) => (
-                    <span
-                      key={badge}
-                      className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-200"
-                    >
-                      {badge}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6">
-            <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Artifacts</p>
-            <div className="mt-4 space-y-3">
-              {artifactRows.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-white/10 bg-black/10 px-4 py-5 text-sm text-zinc-500">
-                  No artifacts have been materialized yet.
-                </div>
-              ) : (
-                artifactRows.map((artifact) => (
-                  <div
-                    key={artifact.artifact_type}
-                    className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300"
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium text-white">{artifactLabel(artifact.artifact_type)}</span>
-                      <span className="text-zinc-500">
-                        {artifact.status} | v{artifact.version ?? 1}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-zinc-400">
-                      {artifact.source_model ?? "artifact-ready"}
-                    </p>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6">
             <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Privacy</p>
             <div className="mt-4 flex items-start gap-3">
               <ShieldCheck className="mt-1 h-5 w-5 text-[var(--brand-highlight)]" />
               <p className="text-sm leading-7 text-zinc-300">
-                Raw audio is short-lived for {providerStatus.rawAssetRetentionHours} hours, and the durable cloud record keeps only structured findings, exports, and meeting metadata.
+                Raw audio is short-lived for {providerStatus.rawAssetRetentionHours} hours, and
+                the durable cloud record keeps only structured findings, exports, and meeting
+                metadata.
               </p>
             </div>
           </div>
@@ -540,7 +364,7 @@ export function MeetingReview({
               <p>{transcriptAvailability.message}</p>
               {transcriptAvailability.expiresAt ? (
                 <p className="text-zinc-400">
-                  Available until {formatWorkspaceDate(transcriptAvailability.expiresAt)}
+                  Available until <WorkspaceDateText value={transcriptAvailability.expiresAt} />
                 </p>
               ) : null}
             </div>
@@ -565,25 +389,18 @@ export function MeetingReview({
                 : "Connect Notion and choose a destination before exporting findings there."}
             </p>
 
-            <div className="mt-5 grid grid-cols-1 gap-3">
+            <div className="mt-5">
               <Button
                 radius="full"
                 onPress={handleNotionExport}
                 isDisabled={!notionReady}
                 isLoading={busyAction === "notion"}
                 className="brand-button-secondary h-11 font-semibold"
-                startContent={busyAction === "notion" ? undefined : <ExternalLink className="h-4 w-4" />}
+                startContent={
+                  busyAction === "notion" ? undefined : <ExternalLink className="h-4 w-4" />
+                }
               >
                 Export to Notion
-              </Button>
-              <Button
-                radius="full"
-                onPress={() => handleRegenerate("email_draft")}
-                isLoading={busyAction === "email_draft"}
-                className="brand-button-secondary h-11 font-semibold"
-                startContent={busyAction === "email_draft" ? undefined : <RefreshCcw className="h-4 w-4" />}
-              >
-                Regenerate email draft
               </Button>
             </div>
           </div>
@@ -605,7 +422,7 @@ export function MeetingReview({
                       <span className="font-medium capitalize text-white">
                         {item.export_type.replace(/_/g, " ")}
                       </span>
-                      <span className="text-zinc-500">{formatWorkspaceDate(item.created_at)}</span>
+                      <WorkspaceDateText value={item.created_at} className="text-zinc-500" />
                     </div>
                     <p className="mt-1 text-zinc-400">{item.status}</p>
                   </div>

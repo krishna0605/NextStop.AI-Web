@@ -15,7 +15,7 @@ import {
 } from "@tests/fixtures/workspace";
 
 describe("MeetingReview", () => {
-  it("renders the production transcript-disabled posture", () => {
+  it("renders the simplified review layout with transcript actions", () => {
     render(
       <MeetingReview
         meeting={smokeReadyMeeting}
@@ -33,8 +33,11 @@ describe("MeetingReview", () => {
     expect(
       screen.getByText(/Transcript downloads are disabled for this production launch/i)
     ).toBeInTheDocument();
-    expect(screen.getByText(/shared outputs, transcript-free cloud workspace/i)).toBeInTheDocument();
-    expect(screen.getByText(/Transcription pipeline/i)).toBeInTheDocument();
-    expect(screen.getByText(/Transcription: ready/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/shared outputs, transcript-free cloud workspace/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Transcription pipeline/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Artifacts$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Regenerate summary/i)).not.toBeInTheDocument();
   });
 });

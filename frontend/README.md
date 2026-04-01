@@ -26,6 +26,10 @@ Keep these on Vercel:
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `NEXT_PUBLIC_BACKEND_URL`
+- `AI_CORE_API_URL`
+- `AI_CORE_SHARED_SECRET`
+- `AI_PIPELINE_MODE`
+- `AI_INLINE_FALLBACK_ENABLED`
 - `NEXT_PUBLIC_RAZORPAY_KEY_ID`
 
 During migration, some server-side Next.js flows still exist in the app. The long-term target is to remove server-only business logic from the Vercel deployment and keep private backend secrets only on Railway.

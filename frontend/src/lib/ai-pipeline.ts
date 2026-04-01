@@ -447,17 +447,6 @@ async function readAudioAssetAsFile(asset: MeetingAssetRecord) {
   });
 }
 
-async function readTextAssetByLocation(bucket: string, path: string) {
-  const admin = createAdminClient();
-  const { data, error } = await admin.storage.from(bucket).download(path);
-
-  if (error) {
-    throw error;
-  }
-
-  return data.text();
-}
-
 async function upsertMeetingFindings(
   meetingId: string,
   userId: string,

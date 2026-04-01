@@ -18,7 +18,6 @@ import {
   createContext,
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -26,6 +25,11 @@ import {
 
 import { resolvePublicApiUrl } from "@/lib/public-backend";
 import { createClient as createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import {
+  calculateNormalizedRms,
+  getCaptureSelectionError,
+  getSilentCaptureError,
+} from "@/lib/workspace-capture-audio";
 
 const STORAGE_KEY = "nextstop-workspace-capture-session";
 
@@ -173,6 +177,12 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
   const micStreamRef = useRef<MediaStream | null>(null);
   const mergedStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const audioAnalyserRef = useRef<AnalyserNode | null>(null);
+  const audioMonitorIntervalRef = useRef<number | null>(null);
+  const peakAudioLevelRef = useRef(0);
+  const displayAudioPresentRef = useRef(false);
+  const micAudioPresentRef = useRef(false);
+  const displaySurfaceRef = useRef<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const retryableFinalizeRef = useRef<RetryableFinalizePayload | null>(null);
@@ -261,6 +271,10 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
   }
 
   async function releaseMedia() {
+    if (audioMonitorIntervalRef.current !== null) {
+      window.clearInterval(audioMonitorIntervalRef.current);
+      audioMonitorIntervalRef.current = null;
+    }
     displayStreamRef.current?.getTracks().forEach((track) => track.stop());
     micStreamRef.current?.getTracks().forEach((track) => track.stop());
     mergedStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -269,6 +283,11 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
     mergedStreamRef.current = null;
     mediaRecorderRef.current = null;
     recordedChunksRef.current = [];
+    audioAnalyserRef.current = null;
+    peakAudioLevelRef.current = 0;
+    displayAudioPresentRef.current = false;
+    micAudioPresentRef.current = false;
+    displaySurfaceRef.current = null;
     setTabShared(false);
     setMicLive(false);
     setElapsedSeconds(0);
@@ -285,31 +304,79 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
       video: true,
       audio: true,
     });
-    const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    let micStream: MediaStream | null = null;
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (caughtError) {
+      console.warn("[workspace-capture] Microphone access was not granted", caughtError);
+    }
+
+    const displayTrack = displayStream.getVideoTracks()[0] ?? null;
+    const displaySurface =
+      typeof displayTrack?.getSettings === "function"
+        ? displayTrack.getSettings().displaySurface ?? null
+        : null;
+    const hasDisplayAudio = displayStream.getAudioTracks().length > 0;
+    const hasMicAudio = (micStream?.getAudioTracks().length ?? 0) > 0;
+    const captureSelectionError = getCaptureSelectionError({
+      displaySurface,
+      hasDisplayAudio,
+      hasMicAudio,
+    });
+
+    if (captureSelectionError) {
+      displayStream.getTracks().forEach((track) => track.stop());
+      micStream?.getTracks().forEach((track) => track.stop());
+      throw new Error(captureSelectionError);
+    }
+
     const audioContext = new AudioContext();
     const destination = audioContext.createMediaStreamDestination();
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+    const masterGain = audioContext.createGain();
+    masterGain.gain.value = 1;
+    masterGain.connect(destination);
+    masterGain.connect(analyser);
+
     let hasAudioSource = false;
-    if (displayStream.getAudioTracks().length > 0) {
-      audioContext.createMediaStreamSource(displayStream).connect(destination);
+    if (hasDisplayAudio) {
+      const displayAudioStream = new MediaStream(displayStream.getAudioTracks());
+      audioContext.createMediaStreamSource(displayAudioStream).connect(masterGain);
       hasAudioSource = true;
     }
-    if (micStream.getAudioTracks().length > 0) {
-      audioContext.createMediaStreamSource(micStream).connect(destination);
+    if (hasMicAudio && micStream) {
+      const micAudioStream = new MediaStream(micStream.getAudioTracks());
+      audioContext.createMediaStreamSource(micAudioStream).connect(masterGain);
       hasAudioSource = true;
     }
     if (!hasAudioSource) {
       displayStream.getTracks().forEach((track) => track.stop());
-      micStream.getTracks().forEach((track) => track.stop());
+      micStream?.getTracks().forEach((track) => track.stop());
       await audioContext.close().catch(() => undefined);
       throw new Error("No audio source was detected from the selected meeting tab.");
     }
+    await audioContext.resume().catch(() => undefined);
     displayStreamRef.current = displayStream;
     micStreamRef.current = micStream;
     mergedStreamRef.current = destination.stream;
     audioContextRef.current = audioContext;
-    setTabShared(displayStream.getVideoTracks().length > 0);
-    setMicLive(micStream.getAudioTracks().length > 0);
-    const displayTrack = displayStream.getVideoTracks()[0];
+    audioAnalyserRef.current = analyser;
+    peakAudioLevelRef.current = 0;
+    displayAudioPresentRef.current = hasDisplayAudio;
+    micAudioPresentRef.current = hasMicAudio;
+    displaySurfaceRef.current = displaySurface;
+    setTabShared(hasDisplayAudio);
+    setMicLive(hasMicAudio);
+    const analyserSamples = new Uint8Array(analyser.fftSize);
+    audioMonitorIntervalRef.current = window.setInterval(() => {
+      analyser.getByteTimeDomainData(analyserSamples);
+      peakAudioLevelRef.current = Math.max(
+        peakAudioLevelRef.current,
+        calculateNormalizedRms(analyserSamples)
+      );
+    }, 250);
     if (displayTrack) {
       displayTrack.addEventListener("ended", () => {
         setTabShared(false);
@@ -513,19 +580,31 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
           );
         recorder.stop();
       });
+      const silentCaptureError = getSilentCaptureError({
+        peakLevel: peakAudioLevelRef.current,
+        elapsedSeconds,
+      });
+      if (silentCaptureError) {
+        throw new Error(silentCaptureError);
+      }
       await uploadFinalizeBlob(activeMeeting, audioBlob);
       await resetToIdle(
         `Transcription started for "${activeMeeting.title}". Review the Library for live status and findings.`
       );
     } catch (caughtError) {
+      const shouldPreserveForRetry =
+        !(caughtError instanceof Error) ||
+        !/No spoken audio was detected/i.test(caughtError.message);
       const audioBlob =
         recordedChunksRef.current.length > 0
           ? new Blob(recordedChunksRef.current, {
               type: mediaRecorderRef.current?.mimeType || "audio/webm",
             })
           : null;
-      if (audioBlob && audioBlob.size > 0) {
+      if (shouldPreserveForRetry && audioBlob && audioBlob.size > 0) {
         retryableFinalizeRef.current = { meeting: activeMeeting, blob: audioBlob };
+      } else {
+        retryableFinalizeRef.current = null;
       }
       await releaseMedia();
       setCaptureState("failed");
@@ -658,51 +737,32 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
   const isBusy = captureState === "granting" || captureState === "processing";
   const currentTitle = activeMeeting?.title ?? pendingMeeting?.title ?? null;
 
-  const value = useMemo<WorkspaceCaptureControllerValue>(
-    () => ({
-      captureState,
-      context,
-      elapsedSeconds,
-      tabShared,
-      micLive,
-      error,
-      notice,
-      activeMeeting,
-      pendingMeeting,
-      busyAction,
-      currentTitle,
-      canPause,
-      canEnd,
-      canRetryFinalize,
-      isBusy,
-      openCaptureControls,
-      setCaptureTarget,
-      handleStart,
-      handlePauseResume,
-      handleEnd,
-      handleRetryFinalize,
-      handleDiscardFailedSession,
-      handleInstantGoogleMeet,
-      handleSyncToNotion,
-    }),
-    [
-      activeMeeting,
-      busyAction,
-      canEnd,
-      canPause,
-      canRetryFinalize,
-      captureState,
-      context,
-      currentTitle,
-      elapsedSeconds,
-      error,
-      isBusy,
-      micLive,
-      notice,
-      pendingMeeting,
-      tabShared,
-    ]
-  );
+  const value: WorkspaceCaptureControllerValue = {
+    captureState,
+    context,
+    elapsedSeconds,
+    tabShared,
+    micLive,
+    error,
+    notice,
+    activeMeeting,
+    pendingMeeting,
+    busyAction,
+    currentTitle,
+    canPause,
+    canEnd,
+    canRetryFinalize,
+    isBusy,
+    openCaptureControls,
+    setCaptureTarget,
+    handleStart,
+    handlePauseResume,
+    handleEnd,
+    handleRetryFinalize,
+    handleDiscardFailedSession,
+    handleInstantGoogleMeet,
+    handleSyncToNotion,
+  };
 
   return (
     <WorkspaceCaptureControllerContext.Provider value={value}>
@@ -751,7 +811,7 @@ export function WorkspaceCaptureSidebarPanel({
     handleSyncToNotion,
   } = useWorkspaceCaptureController();
 
-  const tabChip = statusChip(tabShared, "Tab shared", "Tab not shared");
+  const tabChip = statusChip(tabShared, "Tab audio live", "Tab audio missing");
   const micChip = statusChip(micLive, "Mic live", "Mic idle");
 
   return (

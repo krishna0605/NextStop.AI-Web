@@ -194,7 +194,9 @@ function normalizeDeepgramPayload(payload: DeepgramResponse): DeepgramTranscript
   const transcript = alternative?.transcript?.trim() || "";
 
   if (!transcript) {
-    throw new Error("Deepgram returned an empty transcript.");
+    throw new Error(
+      'Deepgram returned an empty transcript. No speech was detected in the recorded audio. Make sure the meeting tab is shared with "Share tab audio" enabled and that someone speaks before ending the capture.'
+    );
   }
 
   const paragraphs = extractParagraphs(payload);

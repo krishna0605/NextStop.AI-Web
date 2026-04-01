@@ -1,0 +1,61 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    working_dir: /app
+    command: npm run start
+    env_file:
+      - ./frontend/.env.local
+    environment:
+      NODE_ENV: development
+      PORT: 8080
+      REDIS_URL: redis://redis:6379
+      APP_URL: http://frontend:3000
+      NEXTSTOP_WEB_APP_URL: http://frontend:3000
+      AI_CORE_SHARED_SECRET: nextstop-local-shared-secret
+      AI_PIPELINE_MODE: railway_remote
+      AI_INLINE_FALLBACK_ENABLED: "false"
+    depends_on:
+      - redis
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.local
+    working_dir: /app
+    command: npx next dev --hostname 0.0.0.0 --port 3000 --webpack
+    env_file:
+      - ./frontend/.env.local
+    environment:
+      NODE_ENV: development
+      APP_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_BACKEND_URL: http://localhost:8080
+      AI_CORE_API_URL: http://backend:8080
+      AI_CORE_SHARED_SECRET: nextstop-local-shared-secret
+      AI_PIPELINE_MODE: railway_remote
+      AI_INLINE_FALLBACK_ENABLED: "false"
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+
+volumes:
+  frontend_node_modules:
+  backend_node_modules:
