@@ -13,6 +13,7 @@ const requiredPassingChecks = [
   "Notion workspace broker",
   "Razorpay",
   "Transcript policy",
+  "AI worker",
 ];
 
 async function main() {

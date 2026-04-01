@@ -1,6 +1,8 @@
 import type {
   AiStatusSnapshot,
+  DashboardHomeData,
   IntegrationRecord,
+  LibraryPageData,
   MeetingArtifactRecord,
   MeetingExportRecord,
   MeetingFindingsRecord,
@@ -151,6 +153,14 @@ export const smokeAiStatusReady: AiStatusSnapshot = {
   artifacts: smokeMeetingArtifacts,
   transcriptAsset: null,
   rawAudioAsset: null,
+  phase: "ready",
+  transcriptReadyAt: "2026-03-21T11:46:30.000Z",
+  findingsReadyAt: "2026-03-21T11:47:00.000Z",
+  timings: {
+    transcribeMs: 1200,
+    analyzeMs: 950,
+  },
+  latestError: null,
   pending: false,
 };
 
@@ -179,6 +189,11 @@ export const smokeAiStatusProcessing: AiStatusSnapshot = {
   artifacts: [],
   transcriptAsset: null,
   rawAudioAsset: null,
+  phase: "transcribing",
+  transcriptReadyAt: null,
+  findingsReadyAt: null,
+  timings: null,
+  latestError: null,
   pending: true,
 };
 
@@ -224,4 +239,59 @@ export const smokeWorkspaceOverview: WorkspaceOverview = {
     rawAssetRetentionHours: 24,
     aiPipelineMode: "railway_remote",
   },
+};
+
+export const smokeDashboardHomeData: DashboardHomeData = {
+  google: smokeGoogleReconnectRecord,
+  notion: smokeNotionNeedsDestinationRecord,
+  providerStatus: smokeWorkspaceOverview.providerStatus,
+};
+
+export const smokeLibraryPageData: LibraryPageData = {
+  query: "",
+  limit: 20,
+  nextCursor: "cursor-next-page",
+  providerStatus: smokeWorkspaceOverview.providerStatus,
+  cards: [
+    {
+      id: smokeProcessingMeeting.id,
+      title: smokeProcessingMeeting.title,
+      status: "processing",
+      sourceType: smokeProcessingMeeting.source_type,
+      originPlatform: smokeProcessingMeeting.origin_platform ?? "web",
+      googleEventId: smokeProcessingMeeting.google_event_id ?? null,
+      createdAt: smokeProcessingMeeting.created_at ?? null,
+      endedAt: smokeProcessingMeeting.ended_at ?? null,
+      scheduledStart: "2026-03-21T13:00:00.000Z",
+      summaryShort: null,
+      latestAiStage: "normalizing",
+      latestError: null,
+      phase: "transcribing",
+      exportCount: 0,
+      artifactCount: 0,
+      transcriptExpiresAt: null,
+      meetUrl: "https://meet.google.com/example",
+      eventUrl: "https://calendar.google.com/event?eid=abc",
+    },
+    {
+      id: smokeReadyMeeting.id,
+      title: smokeReadyMeeting.title,
+      status: "ready",
+      sourceType: smokeReadyMeeting.source_type,
+      originPlatform: smokeReadyMeeting.origin_platform ?? "web",
+      googleEventId: smokeReadyMeeting.google_event_id ?? null,
+      createdAt: smokeReadyMeeting.created_at ?? null,
+      endedAt: smokeReadyMeeting.ended_at ?? null,
+      scheduledStart: null,
+      summaryShort: smokeReadyFindings.summary_short ?? null,
+      latestAiStage: "completed",
+      latestError: null,
+      phase: "ready",
+      exportCount: smokeMeetingExports.length,
+      artifactCount: smokeMeetingArtifacts.length,
+      transcriptExpiresAt: null,
+      meetUrl: null,
+      eventUrl: null,
+    },
+  ],
 };

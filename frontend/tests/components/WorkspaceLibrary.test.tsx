@@ -5,7 +5,7 @@ import { afterEach, beforeEach, vi } from "vitest";
 
 import { WorkspaceCaptureProvider } from "@/components/workspace/WorkspaceCaptureIsland";
 import { WorkspaceLibrary } from "@/components/workspace/WorkspaceLibrary";
-import { smokeWorkspaceOverview } from "@tests/fixtures/workspace";
+import { smokeLibraryPageData } from "@tests/fixtures/workspace";
 
 describe("WorkspaceLibrary", () => {
   beforeEach(() => {
@@ -28,7 +28,7 @@ describe("WorkspaceLibrary", () => {
   it("renders seeded meetings across ready and processing states", async () => {
     render(
       <WorkspaceCaptureProvider>
-        <WorkspaceLibrary overview={smokeWorkspaceOverview} />
+        <WorkspaceLibrary data={smokeLibraryPageData} />
       </WorkspaceCaptureProvider>
     );
 

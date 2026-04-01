@@ -12,6 +12,7 @@ import {
 import { WorkspaceLibrary } from "@/components/workspace/WorkspaceLibrary";
 import {
   smokeAiStatusReady,
+  smokeLibraryPageData,
   smokeMeetingArtifacts,
   smokeGoogleReconnectRecord,
   smokeMeetingExports,
@@ -57,7 +58,7 @@ export default function SmokePage() {
         </section>
 
         <section aria-label="Library state">
-          <WorkspaceLibrary overview={smokeWorkspaceOverview} />
+          <WorkspaceLibrary data={smokeLibraryPageData} />
         </section>
 
         <section aria-label="Review state">

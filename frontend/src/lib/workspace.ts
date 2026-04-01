@@ -9,6 +9,7 @@ export type MeetingStatus =
   | "capturing"
   | "queued"
   | "transcribing"
+  | "transcript_ready"
   | "analyzing"
   | "processing"
   | "partial_success"
@@ -26,7 +27,7 @@ export type IntegrationStatus =
 
 export type TranscriptAvailabilityStatus = "available" | "expired" | "disabled" | "local_only";
 export type AiPipelineMode = "railway_remote" | "inline_legacy";
-export type AiJobType = "transcribe" | "finalize" | "regenerate_artifact";
+export type AiJobType = "transcribe" | "analyze" | "finalize" | "regenerate_artifact";
 export type AiJobStatus = "queued" | "running" | "partial_success" | "ready" | "failed";
 export type AiJobStage =
   | "queued"
@@ -45,6 +46,13 @@ export type MeetingArtifactType =
   | "summary"
   | "action_items"
   | "email_draft";
+export type AiPhase =
+  | "queued"
+  | "transcribing"
+  | "transcript_ready"
+  | "analyzing"
+  | "ready"
+  | "failed";
 
 export type NotionDestinationType = "page" | "database";
 
@@ -189,6 +197,11 @@ export interface AiStatusSnapshot {
   artifacts: MeetingArtifactRecord[];
   transcriptAsset: MeetingAssetRecord | null;
   rawAudioAsset: MeetingAssetRecord | null;
+  phase: AiPhase;
+  transcriptReadyAt?: string | null;
+  findingsReadyAt?: string | null;
+  timings?: Record<string, unknown> | null;
+  latestError: string | null;
   pending: boolean;
 }
 
@@ -199,6 +212,21 @@ export interface TranscriptAvailability {
   downloadEnabled: boolean;
 }
 
+export interface WorkspaceProviderStatus {
+  deepgramConfigured: boolean;
+  openAiConfigured: boolean;
+  aiCoreConfigured: boolean;
+  huggingFaceConfigured: boolean;
+  googleConfigured: boolean;
+  googleRefreshConfigured: boolean;
+  notionConfigured: boolean;
+  transcriptDownloadsEnabled: boolean;
+  transcriptStorageMode: "memory" | "disabled";
+  transcriptRetentionMinutes: number;
+  rawAssetRetentionHours: number;
+  aiPipelineMode: AiPipelineMode;
+}
+
 export interface WorkspaceOverview {
   google: IntegrationRecord | null;
   notion: IntegrationRecord | null;
@@ -207,20 +235,42 @@ export interface WorkspaceOverview {
   findingsByMeetingId: Record<string, MeetingFindingsRecord | undefined>;
   exportsByMeetingId: Record<string, MeetingExportRecord[]>;
   aiStatusByMeetingId: Record<string, AiStatusSnapshot | undefined>;
-  providerStatus: {
-    deepgramConfigured: boolean;
-    openAiConfigured: boolean;
-    aiCoreConfigured: boolean;
-    huggingFaceConfigured: boolean;
-    googleConfigured: boolean;
-    googleRefreshConfigured: boolean;
-    notionConfigured: boolean;
-    transcriptDownloadsEnabled: boolean;
-    transcriptStorageMode: "memory" | "disabled";
-    transcriptRetentionMinutes: number;
-    rawAssetRetentionHours: number;
-    aiPipelineMode: AiPipelineMode;
-  };
+  providerStatus: WorkspaceProviderStatus;
+}
+
+export interface DashboardHomeData {
+  google: IntegrationRecord | null;
+  notion: IntegrationRecord | null;
+  providerStatus: WorkspaceProviderStatus;
+}
+
+export interface LibraryMeetingCard {
+  id: string;
+  title: string;
+  status: MeetingStatus;
+  sourceType: MeetingSourceType;
+  originPlatform: string | null;
+  googleEventId?: string | null;
+  createdAt: string | null;
+  endedAt: string | null;
+  scheduledStart: string | null;
+  summaryShort: string | null;
+  latestAiStage: string | null;
+  latestError: string | null;
+  phase: AiPhase;
+  exportCount: number;
+  artifactCount: number;
+  transcriptExpiresAt: string | null;
+  meetUrl: string | null;
+  eventUrl: string | null;
+}
+
+export interface LibraryPageData {
+  cards: LibraryMeetingCard[];
+  query: string;
+  limit: number;
+  nextCursor: string | null;
+  providerStatus: WorkspaceProviderStatus;
 }
 
 export const MEETING_SOURCE_LABELS: Record<MeetingSourceType, string> = {
@@ -257,6 +307,11 @@ export const MEETING_STATUS_COPY: Record<
     label: "Transcribing",
     description: "Audio is being converted into text.",
     tone: "warm",
+  },
+  transcript_ready: {
+    label: "Transcript Ready",
+    description: "Transcript is ready and richer findings are now being assembled.",
+    tone: "trust",
   },
   analyzing: {
     label: "Analyzing",

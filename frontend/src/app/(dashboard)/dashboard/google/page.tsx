@@ -1,8 +1,8 @@
 import { GoogleWorkspace } from "@/components/workspace/GoogleWorkspace";
-import { requireWorkspaceOverview } from "@/lib/workspace-page";
+import { requireDashboardHomeData } from "@/lib/workspace-page";
 
 export default async function GoogleWorkspacePage() {
-  const { overview } = await requireWorkspaceOverview();
+  const { overview } = await requireDashboardHomeData();
 
   return <GoogleWorkspace record={overview.google} />;
 }

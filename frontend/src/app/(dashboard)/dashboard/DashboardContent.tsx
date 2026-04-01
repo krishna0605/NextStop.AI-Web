@@ -2,7 +2,7 @@ import type { User } from "@supabase/supabase-js";
 
 import { type PlanCode, normalizeAccessState, normalizePlanCode, type ProfileRecord } from "@/lib/billing";
 import { getWorkspaceDisplayName } from "@/lib/workspace-server";
-import type { WorkspaceOverview as WorkspaceOverviewData } from "@/lib/workspace";
+import type { DashboardHomeData } from "@/lib/workspace";
 import { WorkspaceOverview } from "@/components/workspace/WorkspaceOverview";
 
 export function DashboardContent({
@@ -12,7 +12,7 @@ export function DashboardContent({
 }: {
   user: User;
   profile: ProfileRecord | null;
-  overview: WorkspaceOverviewData;
+  overview: DashboardHomeData;
 }) {
   const displayName = getWorkspaceDisplayName(user, profile);
   const planCode: PlanCode = normalizePlanCode(profile);

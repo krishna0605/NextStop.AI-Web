@@ -1,6 +1,7 @@
 export {
   smokeAiStatusProcessing,
   smokeAiStatusReady,
+  smokeLibraryPageData,
   smokeGoogleReconnectRecord,
   smokeMeetingArtifacts,
   smokeMeetingExports,

@@ -1428,9 +1428,41 @@ export async function loadAiStatusSnapshot(meetingId: string, userId: string) {
   const pendingStatuses: WebMeetingRecord["status"][] = [
     "queued",
     "transcribing",
+    "transcript_ready",
     "analyzing",
     "processing",
   ];
+  const jobMetadata =
+    latestJob?.provider_metadata && typeof latestJob.provider_metadata === "object"
+      ? latestJob.provider_metadata
+      : {};
+  const timings =
+    jobMetadata.timings && typeof jobMetadata.timings === "object"
+      ? (jobMetadata.timings as Record<string, unknown>)
+      : null;
+  const latestError =
+    latestJob?.error?.trim() ||
+    (typeof jobMetadata.remote_dispatch === "object" &&
+    jobMetadata.remote_dispatch &&
+    typeof (jobMetadata.remote_dispatch as Record<string, unknown>).error === "string"
+      ? ((jobMetadata.remote_dispatch as Record<string, unknown>).error as string)
+      : null);
+  const meetingMetadata =
+    meeting.session_metadata && typeof meeting.session_metadata === "object"
+      ? meeting.session_metadata
+      : {};
+  const phase =
+    meeting.status === "failed" || latestJob?.status === "failed"
+      ? "failed"
+      : meeting.status === "ready" || meeting.status === "partial_success"
+        ? "ready"
+        : meeting.status === "transcript_ready"
+          ? "transcript_ready"
+          : meeting.status === "analyzing"
+            ? "analyzing"
+            : meeting.status === "transcribing" || meeting.status === "processing"
+              ? "transcribing"
+              : "queued";
 
   return {
     meetingId,
@@ -1439,6 +1471,21 @@ export async function loadAiStatusSnapshot(meetingId: string, userId: string) {
     artifacts,
     transcriptAsset,
     rawAudioAsset,
+    phase,
+    transcriptReadyAt:
+      typeof meetingMetadata.transcript_ready_at === "string"
+        ? meetingMetadata.transcript_ready_at
+        : typeof jobMetadata.transcriptReadyAt === "string"
+          ? jobMetadata.transcriptReadyAt
+          : null,
+    findingsReadyAt:
+      typeof meetingMetadata.findings_ready_at === "string"
+        ? meetingMetadata.findings_ready_at
+        : typeof jobMetadata.findingsReadyAt === "string"
+          ? jobMetadata.findingsReadyAt
+          : null,
+    timings,
+    latestError,
     pending: pendingStatuses.includes(meeting.status),
   } satisfies AiStatusSnapshot;
 }

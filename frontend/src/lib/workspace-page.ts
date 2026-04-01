@@ -1,12 +1,18 @@
 import "server-only";
 
+import { cache } from "react";
 import { notFound, redirect } from "next/navigation";
 
 import { resolveAccessContext } from "@/lib/billing-server";
 import { createClient } from "@/lib/supabase-server";
-import { loadMeetingDetail, loadWorkspaceOverview } from "./workspace-server";
+import {
+  loadDashboardHomeData,
+  loadLibraryPageData,
+  loadMeetingDetail,
+  loadWorkspaceOverview,
+} from "./workspace-server";
 
-export async function requireWorkspaceAccess() {
+const getWorkspaceAccessContext = cache(async () => {
   const supabase = await createClient();
   const {
     data: { user },
@@ -26,6 +32,34 @@ export async function requireWorkspaceAccess() {
     supabase,
     user,
     access,
+  };
+});
+
+export async function requireWorkspaceAccess() {
+  return getWorkspaceAccessContext();
+}
+
+export async function requireDashboardHomeData() {
+  const context = await requireWorkspaceAccess();
+  const overview = await loadDashboardHomeData(context.supabase, context.user.id);
+
+  return {
+    ...context,
+    overview,
+  };
+}
+
+export async function requireLibraryPageData(args: {
+  q?: string;
+  cursor?: string | null;
+  limit?: number;
+}) {
+  const context = await requireWorkspaceAccess();
+  const data = await loadLibraryPageData(context.supabase, context.user.id, args);
+
+  return {
+    ...context,
+    data,
   };
 }
 

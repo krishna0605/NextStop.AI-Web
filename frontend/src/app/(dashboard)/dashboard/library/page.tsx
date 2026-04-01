@@ -1,8 +1,18 @@
 import { WorkspaceLibrary } from "@/components/workspace/WorkspaceLibrary";
-import { requireWorkspaceOverview } from "@/lib/workspace-page";
+import { requireLibraryPageData } from "@/lib/workspace-page";
 
-export default async function WorkspaceLibraryPage() {
-  const { overview } = await requireWorkspaceOverview();
+export default async function WorkspaceLibraryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; cursor?: string; limit?: string }>;
+}) {
+  const params = await searchParams;
+  const parsedLimit = params.limit ? Number(params.limit) : undefined;
+  const { data } = await requireLibraryPageData({
+    q: params.q,
+    cursor: params.cursor ?? null,
+    limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+  });
 
-  return <WorkspaceLibrary overview={overview} />;
+  return <WorkspaceLibrary data={data} />;
 }

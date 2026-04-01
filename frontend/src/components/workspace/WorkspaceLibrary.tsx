@@ -6,6 +6,7 @@ import {
   ArrowRight,
   ExternalLink,
   FileSearch,
+  LoaderCircle,
   NotebookPen,
   PlayCircle,
   Radio,
@@ -13,11 +14,11 @@ import {
   Video,
 } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useTransition } from "react";
 
 import { useWorkspaceCaptureController } from "@/components/workspace/WorkspaceCaptureIsland";
-import type { WorkspaceOverview } from "@/lib/workspace";
+import type { LibraryMeetingCard, LibraryPageData } from "@/lib/workspace";
 import { formatWorkspaceDate, MEETING_SOURCE_LABELS, MEETING_STATUS_COPY } from "@/lib/workspace";
 
 function toneClass(tone: "warm" | "trust" | "neutral" | "danger") {
@@ -33,27 +34,64 @@ function toneClass(tone: "warm" | "trust" | "neutral" | "danger") {
   }
 }
 
-function readMetadataValue(metadata: unknown, key: string) {
-  if (!metadata || typeof metadata !== "object") {
-    return null;
-  }
-
-  const value = (metadata as Record<string, unknown>)[key];
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
 function originLabel(originPlatform: string | null | undefined) {
   return originPlatform === "desktop" ? "Desktop" : "Web";
 }
 
-export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) {
+function buildLibrarySearchParams(args: {
+  searchParams: URLSearchParams;
+  query?: string;
+  cursor?: string | null;
+}) {
+  const next = new URLSearchParams(args.searchParams.toString());
+
+  if (args.query !== undefined) {
+    const trimmedQuery = args.query.trim();
+    if (trimmedQuery) {
+      next.set("q", trimmedQuery);
+    } else {
+      next.delete("q");
+    }
+  }
+
+  if (args.cursor) {
+    next.set("cursor", args.cursor);
+  } else {
+    next.delete("cursor");
+  }
+
+  return next;
+}
+
+function formatPreviewCopy(meeting: LibraryMeetingCard) {
+  if (meeting.summaryShort?.trim()) {
+    return meeting.summaryShort;
+  }
+
+  if (meeting.latestError?.trim()) {
+    return meeting.latestError;
+  }
+
+  if (meeting.latestAiStage) {
+    return `Pipeline stage: ${meeting.latestAiStage.replace(/_/g, " ")}`;
+  }
+
+  return MEETING_STATUS_COPY[meeting.status].description;
+}
+
+export function WorkspaceLibrary({ data }: { data: LibraryPageData }) {
   const router = useRouter();
-  const [search, setSearch] = useState("");
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [isNavigating, startTransition] = useTransition();
   const { openCaptureControls, setCaptureTarget } = useWorkspaceCaptureController();
 
   useEffect(() => {
-    const hasPendingMeetings = overview.meetings.some((meeting) =>
-      ["queued", "transcribing", "analyzing", "processing"].includes(meeting.status)
+    const hasPendingMeetings = data.cards.some((meeting) =>
+      ["queued", "transcribing", "transcript_ready", "analyzing", "processing"].includes(
+        meeting.status
+      )
     );
 
     if (!hasPendingMeetings) {
@@ -62,18 +100,52 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
 
     const interval = window.setInterval(() => router.refresh(), 10000);
     return () => window.clearInterval(interval);
-  }, [overview.meetings, router]);
+  }, [data.cards, router]);
 
-  const meetings = useMemo(() => {
-    const normalized = search.trim().toLowerCase();
-
-    return overview.meetings.filter((meeting) => {
-      const summary = overview.findingsByMeetingId[meeting.id]?.summary_short ?? "";
-      const aiStatus = overview.aiStatusByMeetingId[meeting.id]?.latestJob?.stage ?? "";
-      const haystack = `${meeting.title} ${summary} ${meeting.source_type} ${meeting.origin_platform ?? "web"} ${meeting.status} ${aiStatus}`.toLowerCase();
-      return !normalized || haystack.includes(normalized);
+  function navigate(nextSearchParams: URLSearchParams) {
+    startTransition(() => {
+      const queryString = nextSearchParams.toString();
+      router.push(queryString ? `${pathname}?${queryString}` : pathname);
     });
-  }, [overview, search]);
+  }
+
+  function handleSearchSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextQuery = searchInputRef.current?.value ?? data.query;
+    navigate(
+      buildLibrarySearchParams({
+        searchParams,
+        query: nextQuery,
+        cursor: null,
+      })
+    );
+  }
+
+  function handleNextPage() {
+    if (!data.nextCursor) {
+      return;
+    }
+
+    navigate(
+      buildLibrarySearchParams({
+        searchParams,
+        cursor: data.nextCursor,
+      })
+    );
+  }
+
+  function handleResetFilters() {
+    navigate(new URLSearchParams());
+  }
+
+  function handleFirstPage() {
+    navigate(
+      buildLibrarySearchParams({
+        searchParams,
+        cursor: null,
+      })
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -88,82 +160,111 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
             <h1 className="text-3xl font-bold text-white">Scheduled and captured meetings</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
               This view combines Google meetings created in the workspace with direct browser-tab
-              captures. Transcription stages, downstream findings, artifact durability, and export
-              history stay here.
+              captures. Search and paging now run server-side so the page can paint faster while
+              sessions continue updating in the background.
             </p>
           </div>
-          <div className="flex w-full max-w-sm flex-col gap-3">
+
+          <form className="flex w-full max-w-sm flex-col gap-3" onSubmit={handleSearchSubmit}>
             <label className="block">
               <span className="mb-2 block text-sm text-zinc-400">Search meetings</span>
               <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search by title, source, summary, or transcription stage"
+                key={data.query}
+                ref={searchInputRef}
+                defaultValue={data.query}
+                placeholder="Search by title"
                 className="w-full rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none transition focus:border-[rgb(var(--brand-primary-rgb)/0.5)]"
               />
             </label>
-            <Button
-              radius="full"
-              onPress={() => router.refresh()}
-              className="brand-button-secondary h-10 font-semibold"
-              startContent={<RefreshCcw className="h-4 w-4" />}
-            >
-              Refresh library
-            </Button>
-          </div>
+            <div className="flex flex-wrap gap-3">
+              <Button
+                type="submit"
+                radius="full"
+                className="brand-button-secondary h-10 flex-1 font-semibold"
+                startContent={
+                  isNavigating ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <FileSearch className="h-4 w-4" />
+                  )
+                }
+              >
+                Search library
+              </Button>
+              <Button
+                radius="full"
+                onPress={() => router.refresh()}
+                className="brand-button-secondary h-10 font-semibold"
+                startContent={<RefreshCcw className="h-4 w-4" />}
+              >
+                Refresh
+              </Button>
+            </div>
+          </form>
         </div>
       </motion.section>
 
       <section className="grid grid-cols-1 gap-4">
-        {meetings.length === 0 ? (
+        {data.cards.length === 0 ? (
           <div className="rounded-[2rem] border border-dashed border-white/10 bg-zinc-950/50 px-6 py-14 text-center">
             <FileSearch className="mx-auto h-10 w-10 text-zinc-600" />
             <p className="mt-4 text-lg font-medium text-white">No matching meetings yet</p>
             <p className="mt-2 text-sm text-zinc-500">
-              Create a Google Meet or start a browser capture from the sidebar controls to
-              populate this library.
+              {data.query
+                ? "Try a broader search or clear the filter to see more meetings."
+                : "Create a Google Meet or start a browser capture from the sidebar controls to populate this library."}
             </p>
+            {data.query ? (
+              <div className="mt-5">
+                <Button
+                  radius="full"
+                  onPress={handleResetFilters}
+                  className="brand-button-secondary h-10 px-5 font-semibold"
+                >
+                  Clear search
+                </Button>
+              </div>
+            ) : null}
           </div>
         ) : (
-          meetings.map((meeting, index) => {
-            const findings = overview.findingsByMeetingId[meeting.id];
-            const exports = overview.exportsByMeetingId[meeting.id] ?? [];
+          data.cards.map((meeting) => {
             const status = MEETING_STATUS_COPY[meeting.status];
-            const aiStatus = overview.aiStatusByMeetingId[meeting.id];
-            const meetUrl = readMetadataValue(meeting.session_metadata, "meet_url");
-            const eventUrl = readMetadataValue(meeting.session_metadata, "event_url");
-            const scheduledStart = readMetadataValue(meeting.session_metadata, "scheduled_start");
-            const sourceLabel = MEETING_SOURCE_LABELS[meeting.source_type];
-            const platformLabel = originLabel(meeting.origin_platform);
+            const sourceLabel = MEETING_SOURCE_LABELS[meeting.sourceType];
+            const platformLabel = originLabel(meeting.originPlatform);
             const primaryDate =
               meeting.status === "scheduled" || meeting.status === "draft"
-                ? formatWorkspaceDate(scheduledStart)
-                : formatWorkspaceDate(meeting.ended_at || meeting.created_at);
+                ? formatWorkspaceDate(meeting.scheduledStart)
+                : formatWorkspaceDate(meeting.endedAt || meeting.createdAt);
             const isScheduled = meeting.status === "scheduled" || meeting.status === "draft";
-            const isCapturing = ["capturing", "queued", "transcribing", "analyzing", "processing"].includes(
-              meeting.status
-            );
-            const isReady = meeting.status === "ready" || meeting.status === "partial_success";
+            const isCapturing = [
+              "capturing",
+              "queued",
+              "transcribing",
+              "transcript_ready",
+              "analyzing",
+              "processing",
+            ].includes(meeting.status);
+            const isReady =
+              meeting.status === "ready" ||
+              meeting.status === "partial_success" ||
+              meeting.status === "transcript_ready";
             const detailHref = `/dashboard/review/${meeting.id}`;
-            const previewCopy = isReady
-              ? findings?.summary_full ?? status.description
-              : aiStatus?.latestJob?.stage
-                ? `Pipeline stage: ${aiStatus.latestJob.stage.replace(/_/g, " ")}`
-                : status.description;
 
             return (
               <motion.article
                 key={meeting.id}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.04 }}
+                transition={{ duration: 0.18 }}
                 className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6"
               >
                 <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="truncate text-xl font-semibold text-white">{meeting.title}</h2>
-                      <span className={`rounded-full border px-2.5 py-1 text-xs ${toneClass(status.tone)}`}>
+                      <span
+                        className={`rounded-full border px-2.5 py-1 text-xs ${toneClass(status.tone)}`}
+                      >
                         {status.label}
                       </span>
                       <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-200">
@@ -172,23 +273,25 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
                       <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-xs text-zinc-300">
                         {sourceLabel}
                       </span>
-                      {aiStatus?.latestJob?.stage ? (
+                      {meeting.latestAiStage ? (
                         <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-300">
-                          {aiStatus.latestJob.stage.replace(/_/g, " ")}
+                          {meeting.latestAiStage.replace(/_/g, " ")}
                         </span>
                       ) : null}
                     </div>
                     <p className="mt-2 text-sm text-zinc-400">{primaryDate}</p>
-                    <p className="mt-4 max-w-3xl text-sm leading-7 text-zinc-300">{previewCopy}</p>
+                    <p className="mt-4 max-w-3xl text-sm leading-7 text-zinc-300">
+                      {formatPreviewCopy(meeting)}
+                    </p>
                   </div>
 
                   <div className="flex shrink-0 items-center gap-3 text-sm text-zinc-400">
                     <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                      <p className="font-medium text-white">{exports.length}</p>
+                      <p className="font-medium text-white">{meeting.exportCount}</p>
                       <p className="mt-1 text-xs text-zinc-500">Exports logged</p>
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                      <p className="font-medium text-white">{aiStatus?.artifacts.length ?? 0}</p>
+                      <p className="font-medium text-white">{meeting.artifactCount}</p>
                       <p className="mt-1 text-xs text-zinc-500">Artifacts</p>
                     </div>
                     {isReady || meeting.status === "failed" ? (
@@ -207,32 +310,46 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
 
                 <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Executive bullets</p>
+                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">
+                      Executive bullets
+                    </p>
                     <p className="mt-3 text-sm text-zinc-300">
-                      {findings?.executive_bullets_json?.[0] ?? (isScheduled ? "Waiting for capture" : "Not generated yet")}
+                      {meeting.summaryShort ?? (isScheduled ? "Waiting for capture" : "Not generated yet")}
                     </p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
                     <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Decisions</p>
                     <p className="mt-3 text-sm text-zinc-300">
-                      {findings?.decisions_json?.[0] ?? (isScheduled ? "No decisions until findings run" : "No decisions captured")}
+                      {meeting.phase === "ready"
+                        ? "Review the meeting for extracted decisions."
+                        : isScheduled
+                          ? "No decisions until findings run"
+                          : "No decisions captured"}
                     </p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Action items</p>
+                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">
+                      Action items
+                    </p>
                     <p className="mt-3 text-sm text-zinc-300">
-                      {findings?.action_items_json?.[0] ?? (isScheduled ? "Start capture from this meeting" : "No action items captured")}
+                      {meeting.phase === "ready"
+                        ? "Open review for the structured action list."
+                        : isScheduled
+                          ? "Start capture from this meeting"
+                          : "No action items captured"}
                     </p>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">Transcript / durability</p>
+                    <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">
+                      Transcript / durability
+                    </p>
                     <p className="mt-3 flex items-center gap-2 text-sm text-zinc-300">
                       <NotebookPen className="h-4 w-4 text-[var(--brand-highlight)]" />
-                      {meeting.origin_platform === "desktop" && meeting.transcript_storage === "local_only"
+                      {meeting.originPlatform === "desktop"
                         ? "Transcript available only on desktop"
-                        : aiStatus?.transcriptAsset?.expires_at
-                        ? `Transcript TTL until ${formatWorkspaceDate(aiStatus.transcriptAsset.expires_at)}`
-                        : "Structured outputs only"}
+                        : meeting.transcriptExpiresAt
+                          ? `Transcript TTL until ${formatWorkspaceDate(meeting.transcriptExpiresAt)}`
+                          : "Structured outputs only"}
                     </p>
                   </div>
                 </div>
@@ -240,8 +357,8 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
                 <div className="mt-5 flex flex-wrap gap-3">
                   {isScheduled ? (
                     <>
-                      {meetUrl ? (
-                        <a href={meetUrl} target="_blank" rel="noreferrer">
+                      {meeting.meetUrl ? (
+                        <a href={meeting.meetUrl} target="_blank" rel="noreferrer">
                           <Button
                             radius="full"
                             className="brand-button-primary h-10 px-5 font-semibold"
@@ -252,8 +369,8 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
                         </a>
                       ) : null}
 
-                      {eventUrl ? (
-                        <a href={eventUrl} target="_blank" rel="noreferrer">
+                      {meeting.eventUrl ? (
+                        <a href={meeting.eventUrl} target="_blank" rel="noreferrer">
                           <Button
                             radius="full"
                             className="brand-button-secondary h-10 px-5 font-semibold"
@@ -270,9 +387,12 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
                           setCaptureTarget({
                             meetingId: meeting.id,
                             title: meeting.title,
-                            sourceType: meeting.source_type === "google_meet" ? "google_meet" : "browser_tab",
-                            googleEventId: meeting.google_event_id ?? null,
-                            meetUrl,
+                            sourceType:
+                              meeting.sourceType === "google_meet"
+                                ? "google_meet"
+                                : "browser_tab",
+                            googleEventId: meeting.googleEventId ?? null,
+                            meetUrl: meeting.meetUrl,
                           })
                         }
                         className="brand-button-secondary h-10 px-5 font-semibold"
@@ -299,6 +419,38 @@ export function WorkspaceLibrary({ overview }: { overview: WorkspaceOverview }) 
           })
         )}
       </section>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[2rem] border border-white/10 bg-zinc-950/50 px-5 py-4">
+        <p className="text-sm text-zinc-400">
+          Showing up to {data.limit} meetings{data.query ? ` for "${data.query}"` : ""}.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          {searchParams.get("cursor") ? (
+            <Button
+              radius="full"
+              onPress={handleFirstPage}
+              className="brand-button-secondary h-10 px-5 font-semibold"
+            >
+              First page
+            </Button>
+          ) : null}
+          <Button
+            radius="full"
+            onPress={handleNextPage}
+            isDisabled={!data.nextCursor || isNavigating}
+            className="brand-button-secondary h-10 px-5 font-semibold"
+            endContent={
+              isNavigating ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+              ) : (
+                <ArrowRight className="h-4 w-4" />
+              )
+            }
+          >
+            Next page
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

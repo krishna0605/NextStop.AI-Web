@@ -239,7 +239,7 @@ export function WorkspaceSettings({
               </p>
               <p className="mt-3 text-sm leading-7 text-zinc-400">
                 {providerStatus.aiPipelineMode === "railway_remote"
-                  ? "Remote queue mode should hand work to Railway and then back into the shared web AI routes. If a worker handoff fails, the review page will surface the latest execution mode and error."
+                  ? "Remote queue mode should keep transcription and analysis on Railway itself. If the worker is unavailable or a stage fails, the review page will surface the latest execution mode and error."
                   : "Inline mode keeps the whole pipeline inside the web app and is useful as the baseline fallback path while remote infrastructure is being repaired."}
               </p>
               <p className="mt-3 text-sm leading-7 text-zinc-400">

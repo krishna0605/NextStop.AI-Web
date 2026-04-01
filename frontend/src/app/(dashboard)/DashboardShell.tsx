@@ -14,6 +14,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
+import { useEffect } from "react";
 
 import { BrandLogo } from "@/components/BrandLogo";
 import {
@@ -78,6 +79,12 @@ export function DashboardShell({
         : accessState === "active"
           ? PLAN_DETAILS[planCode].label
           : "Free";
+
+  useEffect(() => {
+    for (const item of navItems) {
+      router.prefetch(item.href);
+    }
+  }, [router]);
 
   async function handleSignOut() {
     await supabase.auth.signOut();

@@ -1,7 +1,6 @@
 import Fastify from "fastify";
-import { Queue } from "bullmq";
 
-import { getRedisConnection } from "./redis.js";
+import { getAiQueue } from "./queue.js";
 import {
   buildEntitlements,
   createAdminClient,
@@ -9,6 +8,7 @@ import {
   requireUserFromAuthHeader,
   resolveBillingSnapshot,
 } from "./supabase.js";
+import { getWorkerState } from "./worker-state.js";
 
 type TranscriptionJobPayload = {
   jobId: string;
@@ -21,13 +21,21 @@ type RegenerationJobPayload = TranscriptionJobPayload & {
 };
 
 const app = Fastify({ logger: true });
-const queue = new Queue("nextstop-ai-jobs", { connection: getRedisConnection() });
+const queue = getAiQueue();
 
 app.get("/health", async () => {
+  const worker = getWorkerState();
   return {
     ok: true,
     service: "nextstop-ai-core",
     queue: "nextstop-ai-jobs",
+    directExecution: worker.directExecution,
+    workerReady: worker.workerReady,
+    lastWorkerHeartbeatAt: worker.lastWorkerHeartbeatAt,
+    lastJobName: worker.lastJobName,
+    aiPipelineMode: process.env.AI_PIPELINE_MODE ?? "railway_remote",
+    deepgramConfigured: Boolean(process.env.DEEPGRAM_API_KEY),
+    openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
   };
 });
 
@@ -73,7 +81,7 @@ function assertRegenerationPayload(body: unknown): RegenerationJobPayload {
 }
 
 async function enqueueJob(
-  jobName: "transcribe" | "regenerate",
+  jobName: "transcribe" | "analyze" | "regenerate",
   payload: TranscriptionJobPayload | RegenerationJobPayload
 ) {
   await queue.add(jobName, payload, {
@@ -308,6 +316,18 @@ app.post("/jobs/transcribe", async (request, reply) => {
   } catch (error) {
     reply.status(error instanceof Error && error.message === "Unauthorized" ? 401 : 400);
     return { error: error instanceof Error ? error.message : "Unable to enqueue transcription." };
+  }
+});
+
+app.post("/jobs/analyze", async (request, reply) => {
+  try {
+    requireSecret(request.headers.authorization);
+    const payload = assertTranscriptionPayload(request.body);
+    await enqueueJob("analyze", payload);
+    return { ok: true, enqueued: "analyze", jobId: payload.jobId };
+  } catch (error) {
+    reply.status(error instanceof Error && error.message === "Unauthorized" ? 401 : 400);
+    return { error: error instanceof Error ? error.message : "Unable to enqueue analysis." };
   }
 });
 

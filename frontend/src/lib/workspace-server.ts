@@ -20,15 +20,19 @@ import type { ProfileRecord } from "./billing";
 import { createAdminClient } from "./supabase-admin";
 import type {
   AiJobRecord,
+  AiPhase,
   AiStatusSnapshot,
+  DashboardHomeData,
   MeetingArtifactRecord,
   MeetingAssetRecord,
   IntegrationRecord,
+  LibraryMeetingCard,
+  LibraryPageData,
   MeetingExportRecord,
   MeetingFindingsRecord,
-  SpeakerSegmentRecord,
   WebMeetingRecord,
   WorkspaceOverview,
+  WorkspaceProviderStatus,
 } from "./workspace";
 
 type ServerClient = Awaited<ReturnType<typeof createServerClient>>;
@@ -78,6 +82,83 @@ function logWorkspaceFallback(label: string, error: unknown) {
   console.warn(`[workspace] Falling back in ${label}`, error);
 }
 
+async function measureWorkspaceCall<T>(label: string, work: () => Promise<T>) {
+  const startedAt = performance.now();
+  try {
+    return await work();
+  } finally {
+    console.info("[workspace-perf]", {
+      label,
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+  }
+}
+
+function getMetadataRecord(value: unknown) {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+}
+
+function getMetadataString(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function getAiPhaseFromMeeting(meeting: WebMeetingRecord, latestJob: AiJobRecord | null): AiPhase {
+  if (meeting.status === "failed" || latestJob?.status === "failed") {
+    return "failed";
+  }
+
+  if (meeting.status === "ready" || meeting.status === "partial_success") {
+    return "ready";
+  }
+
+  if (meeting.status === "transcript_ready") {
+    return "transcript_ready";
+  }
+
+  if (meeting.status === "analyzing") {
+    return "analyzing";
+  }
+
+  if (meeting.status === "transcribing" || meeting.status === "processing") {
+    return "transcribing";
+  }
+
+  return "queued";
+}
+
+function encodeLibraryCursor(createdAt: string | null, meetingId: string) {
+  if (!createdAt) {
+    return null;
+  }
+
+  return Buffer.from(JSON.stringify({ createdAt, meetingId }), "utf8").toString("base64url");
+}
+
+function decodeLibraryCursor(cursor: string | null | undefined) {
+  if (!cursor) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as {
+      createdAt?: string;
+      meetingId?: string;
+    };
+
+    if (!parsed.createdAt || !parsed.meetingId) {
+      return null;
+    }
+
+    return {
+      createdAt: parsed.createdAt,
+      meetingId: parsed.meetingId,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function queryMaybeSingle<T>(
   client: ServerClient | ReturnType<typeof createAdminClient>,
   table: string,
@@ -113,7 +194,9 @@ async function queryMeetings(
   try {
     const { data, error } = await client
       .from("web_meetings")
-      .select("*")
+      .select(
+        "id,user_id,title,source_type,status,google_event_id,tags,session_metadata,started_at,ended_at,origin_platform,origin_device_id,external_local_id,transcript_storage,created_at,updated_at"
+      )
       .eq("user_id", userId)
       .order("started_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
@@ -141,7 +224,9 @@ async function queryLatestAiJob(
   try {
     const { data, error } = await client
       .from("ai_jobs")
-      .select("*")
+      .select(
+        "id,meeting_id,user_id,job_type,artifact_type,status,stage,attempts,provider_metadata,error,started_at,finished_at,created_at,updated_at"
+      )
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -173,7 +258,9 @@ async function queryFindingsForMeetings(
   try {
     const { data, error } = await client
       .from("meeting_findings")
-      .select("*")
+      .select(
+        "id,meeting_id,user_id,status,summary_short,summary_full,executive_bullets_json,decisions_json,action_items_json,risks_json,follow_ups_json,email_draft,source_model,created_at,updated_at"
+      )
       .in("meeting_id", meetingIds);
 
     if (error) {
@@ -202,7 +289,7 @@ async function queryExportsForMeetings(
   try {
     const { data, error } = await client
       .from("meeting_exports")
-      .select("*")
+      .select("id,meeting_id,user_id,export_type,status,destination,metadata,created_at")
       .in("meeting_id", meetingIds)
       .order("created_at", { ascending: false });
 
@@ -232,7 +319,9 @@ async function queryAiJobsForMeetings(
   try {
     const { data, error } = await client
       .from("ai_jobs")
-      .select("*")
+      .select(
+        "id,meeting_id,user_id,job_type,artifact_type,status,stage,attempts,provider_metadata,error,started_at,finished_at,created_at,updated_at"
+      )
       .in("meeting_id", meetingIds)
       .order("created_at", { ascending: false });
 
@@ -262,7 +351,9 @@ async function queryArtifactsForMeetings(
   try {
     const { data, error } = await client
       .from("meeting_artifacts")
-      .select("*")
+      .select(
+        "id,meeting_id,user_id,artifact_type,status,payload_json,payload_text,source_model,version,metadata,created_by_job_id,created_at,updated_at"
+      )
       .in("meeting_id", meetingIds);
 
     if (error) {
@@ -291,7 +382,9 @@ async function queryAssetsForMeetings(
   try {
     const { data, error } = await client
       .from("meeting_assets")
-      .select("*")
+      .select(
+        "id,meeting_id,user_id,asset_kind,bucket,path,mime_type,byte_size,checksum,status,expires_at,created_by_job_id,metadata,created_at,updated_at"
+      )
       .in("meeting_id", meetingIds)
       .order("created_at", { ascending: false });
 
@@ -303,34 +396,6 @@ async function queryAssetsForMeetings(
   } catch (error) {
     if (isWorkspaceSchemaError(error)) {
       logWorkspaceFallback("queryAssetsForMeetings", error);
-      return [];
-    }
-
-    throw error;
-  }
-}
-
-async function querySpeakerSegmentsForMeeting(
-  client: ServerClient | ReturnType<typeof createAdminClient>,
-  meetingId: string,
-  userId: string
-) {
-  try {
-    const { data, error } = await client
-      .from("meeting_speaker_segments")
-      .select("*")
-      .eq("meeting_id", meetingId)
-      .eq("user_id", userId)
-      .order("start_ms", { ascending: true });
-
-    if (error) {
-      throw error;
-    }
-
-    return (data as SpeakerSegmentRecord[] | null) ?? [];
-  } catch (error) {
-    if (isWorkspaceSchemaError(error)) {
-      logWorkspaceFallback("querySpeakerSegmentsForMeeting", error);
       return [];
     }
 
@@ -353,6 +418,13 @@ function buildAiStatusByMeetingId(
       meetingAssets.find((asset) => asset.asset_kind === "transcript_text") ?? null;
     const rawAudioAsset =
       meetingAssets.find((asset) => asset.asset_kind === "audio_raw") ?? null;
+    const latestJobMetadata = getMetadataRecord(latestJob?.provider_metadata);
+    const timings = getMetadataRecord(latestJobMetadata.timings);
+    const latestError =
+      latestJob?.error?.trim() ||
+      getMetadataString(getMetadataRecord(latestJobMetadata.remote_dispatch), "error") ||
+      null;
+    const sessionMetadata = getMetadataRecord(meeting.session_metadata);
 
     acc[meeting.id] = {
       meetingId: meeting.id,
@@ -361,14 +433,27 @@ function buildAiStatusByMeetingId(
       artifacts: meetingArtifacts,
       transcriptAsset,
       rawAudioAsset,
-      pending: ["queued", "transcribing", "analyzing", "processing"].includes(meeting.status),
+      phase: getAiPhaseFromMeeting(meeting, latestJob),
+      transcriptReadyAt:
+        getMetadataString(sessionMetadata, "transcript_ready_at") ||
+        getMetadataString(latestJobMetadata, "transcriptReadyAt") ||
+        null,
+      findingsReadyAt:
+        getMetadataString(sessionMetadata, "findings_ready_at") ||
+        getMetadataString(latestJobMetadata, "findingsReadyAt") ||
+        null,
+      timings: Object.keys(timings).length > 0 ? timings : null,
+      latestError,
+      pending: ["queued", "transcribing", "transcript_ready", "analyzing", "processing"].includes(
+        meeting.status
+      ),
     };
 
     return acc;
   }, {});
 }
 
-export function getWorkspaceProviderStatus() {
+export function getWorkspaceProviderStatus(): WorkspaceProviderStatus {
   const readiness = getRuntimeReadiness();
 
   return {
@@ -391,45 +476,188 @@ export async function loadWorkspaceOverview(
   supabase: ServerClient,
   user: User
 ): Promise<WorkspaceOverview> {
-  const admin = getAdminClient();
-  const queryClient = admin ?? supabase;
+  return measureWorkspaceCall("loadWorkspaceOverview", async () => {
+    const admin = getAdminClient();
+    const queryClient = admin ?? supabase;
 
-  const [google, notion, meetings, latestAiJob] = await Promise.all([
-    queryMaybeSingle<IntegrationRecord>(queryClient, "integrations_google", user.id),
-    queryMaybeSingle<IntegrationRecord>(queryClient, "integrations_notion", user.id),
-    queryMeetings(queryClient, user.id),
-    queryLatestAiJob(queryClient, user.id),
-  ]);
+    const [google, notion, meetings, latestAiJob] = await Promise.all([
+      queryMaybeSingle<IntegrationRecord>(queryClient, "integrations_google", user.id),
+      queryMaybeSingle<IntegrationRecord>(queryClient, "integrations_notion", user.id),
+      queryMeetings(queryClient, user.id),
+      queryLatestAiJob(queryClient, user.id),
+    ]);
 
-  const meetingIds = meetings.map((meeting) => meeting.id);
-  const [findings, exports, jobs, artifacts, assets] = await Promise.all([
-    queryFindingsForMeetings(queryClient, meetingIds),
-    queryExportsForMeetings(queryClient, meetingIds),
-    queryAiJobsForMeetings(queryClient, meetingIds),
-    queryArtifactsForMeetings(queryClient, meetingIds),
-    queryAssetsForMeetings(queryClient, meetingIds),
-  ]);
-  const aiStatusByMeetingId = buildAiStatusByMeetingId(meetings, jobs, artifacts, assets);
+    const meetingIds = meetings.map((meeting) => meeting.id);
+    const [findings, exports, jobs, artifacts, assets] = await Promise.all([
+      queryFindingsForMeetings(queryClient, meetingIds),
+      queryExportsForMeetings(queryClient, meetingIds),
+      queryAiJobsForMeetings(queryClient, meetingIds),
+      queryArtifactsForMeetings(queryClient, meetingIds),
+      queryAssetsForMeetings(queryClient, meetingIds),
+    ]);
+    const aiStatusByMeetingId = buildAiStatusByMeetingId(meetings, jobs, artifacts, assets);
 
-  return {
-    google,
-    notion,
-    meetings,
-    latestAiJob,
-    findingsByMeetingId: Object.fromEntries(
+    return {
+      google,
+      notion,
+      meetings,
+      latestAiJob,
+      findingsByMeetingId: Object.fromEntries(
+        findings.map((finding) => [finding.meeting_id, finding])
+      ),
+      exportsByMeetingId: exports.reduce<Record<string, MeetingExportRecord[]>>(
+        (acc, item) => {
+          acc[item.meeting_id] = acc[item.meeting_id] ?? [];
+          acc[item.meeting_id].push(item);
+          return acc;
+        },
+        {}
+      ),
+      aiStatusByMeetingId,
+      providerStatus: getWorkspaceProviderStatus(),
+    };
+  });
+}
+
+export async function loadDashboardHomeData(
+  supabase: ServerClient,
+  userId: string
+): Promise<DashboardHomeData> {
+  return measureWorkspaceCall("loadDashboardHomeData", async () => {
+    const admin = getAdminClient();
+    const queryClient = admin ?? supabase;
+    const [google, notion] = await Promise.all([
+      queryMaybeSingle<IntegrationRecord>(queryClient, "integrations_google", userId),
+      queryMaybeSingle<IntegrationRecord>(queryClient, "integrations_notion", userId),
+    ]);
+
+    return {
+      google,
+      notion,
+      providerStatus: getWorkspaceProviderStatus(),
+    };
+  });
+}
+
+async function queryLibraryMeetings(
+  client: ServerClient | ReturnType<typeof createAdminClient>,
+  userId: string,
+  args: { query: string; cursor: string | null; limit: number }
+) {
+  try {
+    let builder = client
+      .from("web_meetings")
+      .select(
+        "id,user_id,title,source_type,status,google_event_id,session_metadata,ended_at,origin_platform,transcript_storage,created_at"
+      )
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(args.limit + 1);
+
+    if (args.query) {
+      const escaped = args.query.replace(/[%_,]/g, " ");
+      builder = builder.ilike("title", `%${escaped}%`);
+    }
+
+    const decodedCursor = decodeLibraryCursor(args.cursor);
+    if (decodedCursor) {
+      builder = builder.or(
+        `created_at.lt.${decodedCursor.createdAt},and(created_at.eq.${decodedCursor.createdAt},id.lt.${decodedCursor.meetingId})`
+      );
+    }
+
+    const { data, error } = await builder;
+
+    if (error) {
+      throw error;
+    }
+
+    return (data as WebMeetingRecord[] | null) ?? [];
+  } catch (error) {
+    if (isWorkspaceSchemaError(error)) {
+      logWorkspaceFallback("queryLibraryMeetings", error);
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+export async function loadLibraryPageData(
+  supabase: ServerClient,
+  userId: string,
+  args: { q?: string; cursor?: string | null; limit?: number }
+): Promise<LibraryPageData> {
+  return measureWorkspaceCall("loadLibraryPageData", async () => {
+    const admin = getAdminClient();
+    const queryClient = admin ?? supabase;
+    const query = args.q?.trim() ?? "";
+    const limit = Math.min(Math.max(args.limit ?? 20, 1), 50);
+    const meetings = await queryLibraryMeetings(queryClient, userId, {
+      query,
+      cursor: args.cursor ?? null,
+      limit,
+    });
+
+    const hasMore = meetings.length > limit;
+    const pageMeetings = hasMore ? meetings.slice(0, limit) : meetings;
+    const meetingIds = pageMeetings.map((meeting) => meeting.id);
+    const [findings, jobs, exports, artifacts, assets] = await Promise.all([
+      queryFindingsForMeetings(queryClient, meetingIds),
+      queryAiJobsForMeetings(queryClient, meetingIds),
+      queryExportsForMeetings(queryClient, meetingIds),
+      queryArtifactsForMeetings(queryClient, meetingIds),
+      queryAssetsForMeetings(queryClient, meetingIds),
+    ]);
+    const aiStatusByMeetingId = buildAiStatusByMeetingId(pageMeetings, jobs, artifacts, assets);
+    const findingsByMeetingId = Object.fromEntries(
       findings.map((finding) => [finding.meeting_id, finding])
-    ),
-    exportsByMeetingId: exports.reduce<Record<string, MeetingExportRecord[]>>(
-      (acc, item) => {
-        acc[item.meeting_id] = acc[item.meeting_id] ?? [];
-        acc[item.meeting_id].push(item);
-        return acc;
-      },
-      {}
-    ),
-    aiStatusByMeetingId,
-    providerStatus: getWorkspaceProviderStatus(),
-  };
+    );
+    const exportCountByMeetingId = exports.reduce<Record<string, number>>((acc, item) => {
+      acc[item.meeting_id] = (acc[item.meeting_id] ?? 0) + 1;
+      return acc;
+    }, {});
+    const artifactCountByMeetingId = artifacts.reduce<Record<string, number>>((acc, item) => {
+      acc[item.meeting_id] = (acc[item.meeting_id] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    const cards: LibraryMeetingCard[] = pageMeetings.map((meeting) => {
+      const aiStatus = aiStatusByMeetingId[meeting.id];
+      const sessionMetadata = getMetadataRecord(meeting.session_metadata);
+
+      return {
+        id: meeting.id,
+        title: meeting.title,
+        status: meeting.status,
+        sourceType: meeting.source_type,
+        originPlatform: meeting.origin_platform ?? "web",
+        googleEventId: meeting.google_event_id ?? null,
+        createdAt: meeting.created_at ?? null,
+        endedAt: meeting.ended_at ?? null,
+        scheduledStart: getMetadataString(sessionMetadata, "scheduled_start"),
+        summaryShort: findingsByMeetingId[meeting.id]?.summary_short ?? null,
+        latestAiStage: aiStatus?.latestJob?.stage ?? null,
+        latestError: aiStatus?.latestError ?? null,
+        phase: aiStatus?.phase ?? "queued",
+        exportCount: exportCountByMeetingId[meeting.id] ?? 0,
+        artifactCount: artifactCountByMeetingId[meeting.id] ?? 0,
+        transcriptExpiresAt: aiStatus?.transcriptAsset?.expires_at ?? null,
+        meetUrl: getMetadataString(sessionMetadata, "meet_url"),
+        eventUrl: getMetadataString(sessionMetadata, "event_url"),
+      };
+    });
+
+    const lastCard = cards[cards.length - 1] ?? null;
+
+    return {
+      cards,
+      query,
+      limit,
+      nextCursor: hasMore && lastCard ? encodeLibraryCursor(lastCard.createdAt, lastCard.id) : null,
+      providerStatus: getWorkspaceProviderStatus(),
+    };
+  });
 }
 
 export async function loadMeetingDetail(
@@ -456,34 +684,26 @@ export async function loadMeetingDetail(
       return null;
     }
 
-    const [
-      { data: findings },
-      { data: exports },
-      google,
-      notion,
-      jobs,
-      artifacts,
-      assets,
-      speakerSegments,
-    ] = await Promise.all([
+    const [{ data: findings }, { data: exports }, notion, jobs, artifacts, assets] =
+      await Promise.all([
       queryClient
         .from("meeting_findings")
-        .select("*")
+        .select(
+          "id,meeting_id,user_id,status,summary_short,summary_full,executive_bullets_json,decisions_json,action_items_json,risks_json,follow_ups_json,email_draft,source_model,created_at,updated_at"
+        )
         .eq("meeting_id", meetingId)
         .eq("user_id", userId)
         .maybeSingle(),
       queryClient
         .from("meeting_exports")
-        .select("*")
+        .select("id,meeting_id,user_id,export_type,status,destination,metadata,created_at")
         .eq("meeting_id", meetingId)
         .eq("user_id", userId)
         .order("created_at", { ascending: false }),
-      queryMaybeSingle<IntegrationRecord>(queryClient, "integrations_google", userId),
       queryMaybeSingle<IntegrationRecord>(queryClient, "integrations_notion", userId),
       queryAiJobsForMeetings(queryClient, [meetingId]),
       queryArtifactsForMeetings(queryClient, [meetingId]),
       queryAssetsForMeetings(queryClient, [meetingId]),
-      querySpeakerSegmentsForMeeting(queryClient, meetingId, userId),
     ]);
     const aiStatus = buildAiStatusByMeetingId(
       [meeting as WebMeetingRecord],
@@ -497,9 +717,7 @@ export async function loadMeetingDetail(
       findings: (findings as MeetingFindingsRecord | null) ?? null,
       exports: (exports as MeetingExportRecord[] | null) ?? [],
       artifacts,
-      speakerSegments,
       aiStatus: aiStatus ?? null,
-      google,
       notion,
       transcriptAvailability: getTranscriptAvailabilityFromAsset(
         aiStatus?.transcriptAsset ?? null,

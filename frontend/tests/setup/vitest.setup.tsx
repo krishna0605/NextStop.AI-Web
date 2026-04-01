@@ -33,7 +33,10 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({
     refresh: vi.fn(),
     push: vi.fn(),
+    prefetch: vi.fn(),
   }),
+  usePathname: () => "/dashboard/library",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("@heroui/react", async () => {

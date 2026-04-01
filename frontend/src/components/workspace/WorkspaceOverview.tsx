@@ -15,7 +15,7 @@ import Link from "next/link";
 import { useWorkspaceCaptureController } from "@/components/workspace/WorkspaceCaptureIsland";
 import type { AccessState, PlanCode } from "@/lib/billing";
 import { PLAN_DETAILS } from "@/lib/billing";
-import type { WorkspaceOverview as WorkspaceOverviewData } from "@/lib/workspace";
+import type { DashboardHomeData as WorkspaceOverviewData } from "@/lib/workspace";
 
 export function WorkspaceOverview({
   displayName,

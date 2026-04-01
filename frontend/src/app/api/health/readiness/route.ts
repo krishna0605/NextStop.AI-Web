@@ -1,12 +1,48 @@
 import { NextResponse } from "next/server";
 
-import { getMissingEnvSummary, getRuntimeReadiness } from "@/lib/env";
+import { getAiCoreApiUrl, getMissingEnvSummary, getRuntimeReadiness } from "@/lib/env";
 
 export const runtime = "nodejs";
+
+async function loadAiCoreHealth() {
+  const apiUrl = getAiCoreApiUrl();
+
+  if (!apiUrl) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(new URL("/health", apiUrl).toString(), {
+      cache: "no-store",
+    });
+    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+
+    return {
+      ok: response.ok,
+      payload,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      payload: {
+        error: error instanceof Error ? error.message : "Unable to reach AI core health endpoint.",
+      },
+    };
+  }
+}
 
 export async function GET() {
   const readiness = getRuntimeReadiness();
   const missing = getMissingEnvSummary();
+  const aiCoreHealth =
+    readiness.aiPipelineMode === "railway_remote" && readiness.aiCoreConfigured
+      ? await loadAiCoreHealth()
+      : null;
+  const aiWorkerReady =
+    aiCoreHealth?.ok &&
+    aiCoreHealth.payload &&
+    aiCoreHealth.payload.workerReady === true &&
+    aiCoreHealth.payload.directExecution === true;
   const checks = [
     {
       name: "Supabase public auth",
@@ -58,6 +94,27 @@ export async function GET() {
             ? "Temporary transcript downloads are enabled."
             : "Memory transcript mode is configured, but downloads are blocked in this runtime.",
     },
+    {
+      name: "AI worker",
+      status:
+        readiness.aiPipelineMode !== "railway_remote"
+          ? "pass"
+          : !readiness.aiCoreConfigured
+            ? "fail"
+            : aiWorkerReady
+              ? "pass"
+              : "fail",
+      detail:
+        readiness.aiPipelineMode !== "railway_remote"
+          ? "Inline fallback mode is active."
+          : !readiness.aiCoreConfigured
+            ? "AI core URL or shared secret is missing."
+            : aiWorkerReady
+              ? "Railway worker is healthy and executing jobs directly."
+              : typeof aiCoreHealth?.payload?.error === "string"
+                ? aiCoreHealth.payload.error
+                : "Railway worker is not ready or direct execution is disabled.",
+    },
   ];
 
   return NextResponse.json(
@@ -65,6 +122,7 @@ export async function GET() {
       ok: missing.length === 0,
       timestamp: new Date().toISOString(),
       readiness,
+      aiCoreHealth: aiCoreHealth?.payload ?? null,
       missing,
       checks,
     },
