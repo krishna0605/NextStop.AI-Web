@@ -26,5 +26,10 @@ describe("GET /api/health/readiness", () => {
         expect.objectContaining({ name: "Transcript policy", status: "pass" }),
       ])
     );
+    expect(payload.launchDecision).toBe("blocked");
+    expect(Array.isArray(payload.blockingFailures)).toBe(true);
+    expect(Array.isArray(payload.warnings)).toBe(true);
+    expect(payload.hostedVerification).toBeNull();
+    expect(payload.launchCertification).toBeNull();
   });
 });

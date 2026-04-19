@@ -8,6 +8,7 @@ import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { BrandLogo } from "@/components/BrandLogo";
+import { getBrowserAuthOrigin } from "@/lib/auth-origin";
 import { sanitizeNextPath } from "@/lib/billing";
 import { createClient } from "@/lib/supabase-browser";
 
@@ -30,6 +31,8 @@ function SignupForm() {
     setLoading(true);
     setError(null);
 
+    const authOrigin = getBrowserAuthOrigin();
+
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -37,7 +40,7 @@ function SignupForm() {
         data: {
           full_name: fullName,
         },
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
+        emailRedirectTo: `${authOrigin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
       },
     });
 
@@ -57,10 +60,12 @@ function SignupForm() {
     setLoading(true);
     setError(null);
 
+    const authOrigin = getBrowserAuthOrigin();
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
+        redirectTo: `${authOrigin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
       },
     });
 

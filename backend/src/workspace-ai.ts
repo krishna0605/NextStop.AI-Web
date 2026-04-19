@@ -8,6 +8,9 @@ type FindingsPayload = {
   followUps: string[];
   emailDraft: string;
   sourceModel: string;
+  generationMode: "openai_primary" | "fallback_local";
+  generationStatus: "full_success" | "degraded_success" | "failed";
+  fallbackReason: string | null;
 };
 
 function splitSentences(text: string) {
@@ -96,6 +99,9 @@ export function fallbackFindings(title: string, sourceText: string): FindingsPay
     followUps,
     emailDraft,
     sourceModel: "fallback-local-summary",
+    generationMode: "fallback_local",
+    generationStatus: "degraded_success",
+    fallbackReason: "openai_unavailable_or_failed",
   };
 }
 
@@ -103,7 +109,10 @@ async function openAiFindings(title: string, sourceText: string): Promise<Findin
   const apiKey = process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
-    return fallbackFindings(title, sourceText);
+    return {
+      ...fallbackFindings(title, sourceText),
+      fallbackReason: "openai_api_key_missing",
+    };
   }
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -165,6 +174,9 @@ async function openAiFindings(title: string, sourceText: string): Promise<Findin
       : fallback.followUps,
     emailDraft: typeof parsed.emailDraft === "string" ? parsed.emailDraft : fallback.emailDraft,
     sourceModel: "gpt-4o-mini",
+    generationMode: "openai_primary",
+    generationStatus: "full_success",
+    fallbackReason: null,
   };
 }
 
@@ -179,6 +191,9 @@ export async function generateMeetingFindings(title: string, sourceText: string)
     return await openAiFindings(title, normalizedText);
   } catch (error) {
     console.warn("[ai-core] Falling back from OpenAI findings generation", error);
-    return fallbackFindings(title, normalizedText);
+    return {
+      ...fallbackFindings(title, normalizedText),
+      fallbackReason: error instanceof Error ? error.message : "OpenAI findings generation failed.",
+    };
   }
 }

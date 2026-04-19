@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { internalServerErrorResponse } from "@/lib/http";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient } from "@/lib/supabase-server";
+import { createMeetingCaptureSession } from "@/lib/workspace-capture-server";
 import { normalizeTags, type MeetingSourceType } from "@/lib/workspace";
 
 export const runtime = "nodejs";
@@ -76,9 +77,16 @@ export async function POST(request: Request) {
         throw error;
       }
 
+      const captureSession = await createMeetingCaptureSession({
+        meetingId: data.id,
+        userId: user.id,
+        captureMode: sourceType,
+      });
+
       return NextResponse.json({
         meetingId: data.id,
         title: data.title,
+        captureSessionId: captureSession.id,
         redirectTo: "/dashboard",
       });
     }
@@ -104,9 +112,16 @@ export async function POST(request: Request) {
       throw error;
     }
 
+    const captureSession = await createMeetingCaptureSession({
+      meetingId: data.id,
+      userId: user.id,
+      captureMode: sourceType,
+    });
+
     return NextResponse.json({
       meetingId: data.id,
       title: data.title,
+      captureSessionId: captureSession.id,
       redirectTo: "/dashboard",
     });
   } catch (error) {

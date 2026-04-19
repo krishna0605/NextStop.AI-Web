@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { useWorkspaceCaptureController } from "@/components/workspace/WorkspaceCaptureIsland";
+import { getBrowserAuthOrigin } from "@/lib/auth-origin";
 import { resolvePublicApiUrl } from "@/lib/public-backend";
 import { createClient } from "@/lib/supabase-browser";
 import type { IntegrationRecord } from "@/lib/workspace";
@@ -142,7 +143,7 @@ export function GoogleWorkspace({ record }: { record: IntegrationRecord | null }
     setError(null);
     setNotice(null);
 
-    const redirectTo = `${window.location.origin}/auth/callback?intent=${encodeURIComponent(
+    const redirectTo = `${getBrowserAuthOrigin()}/auth/callback?intent=${encodeURIComponent(
       "connect-google"
     )}&next=${encodeURIComponent("/dashboard/google")}`;
 

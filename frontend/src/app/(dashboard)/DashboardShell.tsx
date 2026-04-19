@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import {
+  Activity,
   LayoutDashboard,
   Calendar,
   FolderOpen,
@@ -34,6 +35,7 @@ const navItems = [
   { href: "/dashboard/library", label: "Library", icon: FolderOpen },
   { href: "/dashboard/google", label: "Google", icon: Calendar },
   { href: "/dashboard/notion", label: "Notion", icon: NotebookTabs },
+  { href: "/dashboard/ops", label: "Ops", icon: Activity },
   { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 

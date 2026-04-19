@@ -7,10 +7,47 @@ on:
         description: "Deployed application URL"
         required: true
         type: string
+      backend_health_url:
+        description: "Backend health endpoint URL"
+        required: false
+        type: string
+      hosted_verification_results_json:
+        description: "Optional JSON object with manual durable-flow scenario results"
+        required: false
+        type: string
+      certify_launch:
+        description: "Issue a launch certification if all checks are green"
+        required: false
+        default: false
+        type: boolean
+      certification_owner:
+        description: "Owner recorded on launch certification"
+        required: false
+        type: string
+      certification_notes:
+        description: "Notes recorded on launch certification"
+        required: false
+        type: string
+  schedule:
+    - cron: "17 * * * *"
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+    branches:
+      - main
+
+env:
+  BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.base_url || vars.PRODUCTION_BASE_URL }}
+  BACKEND_HEALTH_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.backend_health_url || vars.BACKEND_HEALTH_URL }}
+  AI_CORE_SHARED_SECRET: ${{ secrets.AI_CORE_SHARED_SECRET }}
 
 jobs:
   readiness-check:
+    if: ${{ env.BASE_URL != '' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
+    outputs:
+      launch_decision: ${{ steps.certify_readiness.outputs.launch_decision }}
     steps:
       - uses: actions/checkout@v4
 
@@ -22,12 +59,54 @@ jobs:
 
       - run: npm ci --workspaces=false
         working-directory: frontend
-      - run: npm run test:readiness -- ${{ inputs.base_url }}
+      - run: npm run test:readiness -- ${{ env.BASE_URL }}
         working-directory: frontend
+      - name: Certify launch decision
+        id: certify_readiness
+        shell: bash
+        run: |
+          curl --fail --silent "${{ env.BASE_URL }}/api/health/readiness" > readiness.json
+          node <<'NODE'
+          const fs = require("fs");
+          const payload = JSON.parse(fs.readFileSync("readiness.json", "utf8"));
+          if (!["ready", "degraded", "blocked"].includes(payload.launchDecision)) {
+            throw new Error("Readiness payload missing launchDecision");
+          }
+          if (payload.launchDecision === "blocked") {
+            console.error(JSON.stringify(payload.blockingFailures ?? [], null, 2));
+            process.exit(1);
+          }
+          fs.appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            `- Launch decision: ${payload.launchDecision}\n- Frontend version: ${payload.versions?.frontendVersion ?? "unknown"}\n- Worker version: ${payload.versions?.workerVersion ?? "unknown"}\n- Blocking failures: ${(payload.blockingFailures ?? []).length}\n- Warnings: ${(payload.warnings ?? []).length}\n`
+          );
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `launch_decision=${payload.launchDecision}\n`);
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: readiness-payload
+          path: readiness.json
 
-  preview-smoke:
+  backend-health:
+    if: ${{ env.BACKEND_HEALTH_URL != '' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
     needs: readiness-check
+    steps:
+      - name: Verify backend worker and cleanup health
+        run: |
+          curl --fail --silent "${{ env.BACKEND_HEALTH_URL }}" > backend-health.json
+          node -e "const fs = require('fs'); const payload = JSON.parse(fs.readFileSync('backend-health.json', 'utf8')); if (payload.workerReady !== true || payload.directExecution !== true || payload.workerStale === true) { console.error(JSON.stringify(payload, null, 2)); throw new Error('Backend worker is not healthy enough for certification'); } if (payload.cleanup?.lastCleanupError) { console.error(JSON.stringify(payload.cleanup, null, 2)); throw new Error('Cleanup worker reported an error'); } fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `- Backend worker ready: ${payload.workerReady}\n- Backend direct execution: ${payload.directExecution}\n- Worker stale: ${payload.workerStale}\n- Last cleanup success: ${payload.cleanup?.lastCleanupSuccessAt ?? 'unknown'}\n`);"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-health-payload
+          path: backend-health.json
+
+  preview-smoke:
+    if: ${{ env.BASE_URL != '' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    needs:
+      - readiness-check
+      - backend-health
     steps:
       - uses: actions/checkout@v4
 
@@ -44,7 +123,7 @@ jobs:
       - run: npm run test:e2e -- tests/e2e/deployed-smoke.spec.ts
         working-directory: frontend
         env:
-          PLAYWRIGHT_BASE_URL: ${{ inputs.base_url }}
+          PLAYWRIGHT_BASE_URL: ${{ env.BASE_URL }}
 
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -58,13 +137,214 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - readiness-check
+      - backend-health
       - preview-smoke
     if: always()
     steps:
+      - name: Build hosted verification payload
+        shell: bash
+        env:
+          MANUAL_RESULTS_JSON: ${{ github.event_name == 'workflow_dispatch' && inputs.hosted_verification_results_json || '' }}
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const workflowName = process.env.GITHUB_EVENT_NAME;
+          const readinessResult = process.env.READINESS_RESULT;
+          const backendResult = process.env.BACKEND_RESULT;
+          const previewResult = process.env.PREVIEW_RESULT;
+          const manualJson = process.env.MANUAL_RESULTS_JSON?.trim();
+
+          const scenarioStatusFromJob = (result) => {
+            if (result === "success") return "pass";
+            if (result === "failure") return "fail";
+            if (result === "cancelled") return "blocked";
+            if (result === "skipped") return "blocked";
+            return "unknown";
+          };
+
+          const automatedScenarios = {
+            readiness_api: {
+              status: scenarioStatusFromJob(readinessResult),
+              detail:
+                readinessResult === "success"
+                  ? "Readiness route and readiness script passed."
+                  : `Readiness job result: ${readinessResult}.`,
+              checkedAt: new Date().toISOString(),
+            },
+            backend_health: {
+              status: scenarioStatusFromJob(backendResult),
+              detail:
+                backendResult === "success"
+                  ? "Backend worker heartbeat and cleanup health passed."
+                  : `Backend health job result: ${backendResult}.`,
+              checkedAt: new Date().toISOString(),
+            },
+            deployed_smoke: {
+              status: scenarioStatusFromJob(previewResult),
+              detail:
+                previewResult === "success"
+                  ? "Deployed smoke test passed against the app root and login."
+                  : `Preview smoke job result: ${previewResult}.`,
+              checkedAt: new Date().toISOString(),
+            },
+          };
+
+          let manualScenarios = {};
+
+          if (manualJson) {
+            try {
+              const parsed = JSON.parse(manualJson);
+              if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+                manualScenarios = parsed;
+              }
+            } catch (error) {
+              console.error(`Invalid hosted_verification_results_json: ${error.message}`);
+              process.exit(1);
+            }
+          }
+
+          const scenarios = { ...automatedScenarios, ...manualScenarios };
+          const entries = Object.entries(scenarios);
+          const statuses = entries.map(([, value]) => value?.status ?? "unknown");
+          const firstNonPass = entries.find(([, value]) => value?.status && value.status !== "pass");
+          let overallStatus = "unknown";
+
+          if (statuses.includes("blocked")) {
+            overallStatus = "blocked";
+          } else if (statuses.includes("fail")) {
+            overallStatus = "fail";
+          } else if (statuses.length > 0 && statuses.every((status) => status === "pass")) {
+            overallStatus = "pass";
+          } else if (statuses.some((status) => status === "partial" || status === "unknown")) {
+            overallStatus = "partial";
+          }
+
+          const payload = {
+            status: overallStatus,
+            scenario: firstNonPass?.[0] ?? null,
+            failureReason:
+              firstNonPass?.[1]?.detail ??
+              (overallStatus === "pass"
+                ? null
+                : "Some hosted durable-flow scenarios are still pending or failed."),
+            source: workflowName === "workflow_dispatch" ? "manual_workflow_dispatch" : "post_deploy_workflow",
+            lastHostedVerificationAt: new Date().toISOString(),
+            scenarios,
+          };
+
+          fs.writeFileSync("hosted-verification.json", JSON.stringify(payload, null, 2));
+          fs.appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            `- Hosted verification status: ${payload.status}\n- Hosted verification source: ${payload.source}\n`
+          );
+          NODE
+        env:
+          READINESS_RESULT: ${{ needs.readiness-check.result }}
+          BACKEND_RESULT: ${{ needs.backend-health.result }}
+          PREVIEW_RESULT: ${{ needs.preview-smoke.result }}
+
+      - name: Upload hosted verification artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hosted-verification-payload
+          path: hosted-verification.json
+
+      - name: Publish hosted verification to backend runtime status
+        if: ${{ env.BACKEND_HEALTH_URL != '' && env.AI_CORE_SHARED_SECRET != '' }}
+        shell: bash
+        run: |
+          RUNTIME_BASE="${BACKEND_HEALTH_URL%/health}"
+          curl --fail --silent --show-error \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${AI_CORE_SHARED_SECRET}" \
+            -X POST \
+            "${RUNTIME_BASE}/runtime/hosted-verification" \
+            --data @hosted-verification.json > /dev/null
+
+      - name: Build launch certification payload
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.certify_launch }}
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const hosted = JSON.parse(fs.readFileSync("hosted-verification.json", "utf8"));
+          const validationGreen =
+            process.env.READINESS_RESULT === "success" &&
+            process.env.BACKEND_RESULT === "success" &&
+            process.env.PREVIEW_RESULT === "success";
+          const hostedVerificationPassed = hosted.status === "pass";
+          const operationalProofComplete =
+            process.env.BACKEND_RESULT === "success" && process.env.PREVIEW_RESULT === "success";
+          const status =
+            validationGreen && hostedVerificationPassed && operationalProofComplete
+              ? "certified"
+              : "blocked";
+
+          const payload = {
+            status,
+            certifiedBy: process.env.CERTIFICATION_OWNER || process.env.GITHUB_ACTOR,
+            certificationNotes:
+              process.env.CERTIFICATION_NOTES ||
+              (status === "certified"
+                ? "Launch certification issued from post-deploy verification."
+                : "Launch certification attempted before all evidence was green."),
+            validationGreen,
+            hostedVerificationPassed,
+            operationalProofComplete,
+            readinessLaunchDecision: process.env.LAUNCH_DECISION || null,
+            lastLaunchCertificationAt: new Date().toISOString(),
+          };
+
+          fs.writeFileSync("launch-certification.json", JSON.stringify(payload, null, 2));
+          fs.appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            `- Launch certification status: ${payload.status}\n- Validation green: ${payload.validationGreen}\n- Hosted verification passed: ${payload.hostedVerificationPassed}\n- Operational proof complete: ${payload.operationalProofComplete}\n`
+          );
+          NODE
+        env:
+          READINESS_RESULT: ${{ needs.readiness-check.result }}
+          BACKEND_RESULT: ${{ needs.backend-health.result }}
+          PREVIEW_RESULT: ${{ needs.preview-smoke.result }}
+          CERTIFICATION_OWNER: ${{ inputs.certification_owner }}
+          CERTIFICATION_NOTES: ${{ inputs.certification_notes }}
+          LAUNCH_DECISION: ${{ needs.readiness-check.outputs.launch_decision }}
+
+      - name: Upload launch certification artifact
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.certify_launch }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-certification-payload
+          path: launch-certification.json
+
+      - name: Publish launch certification to backend runtime status
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.certify_launch && env.BACKEND_HEALTH_URL != '' && env.AI_CORE_SHARED_SECRET != '' }}
+        shell: bash
+        run: |
+          RUNTIME_BASE="${BACKEND_HEALTH_URL%/health}"
+          curl --fail --silent --show-error \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${AI_CORE_SHARED_SECRET}" \
+            -X POST \
+            "${RUNTIME_BASE}/runtime/launch-certification" \
+            --data @launch-certification.json > /dev/null
+
       - name: Write launch summary
+        shell: bash
         run: |
           echo "# Post-deploy verification" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Base URL: ${{ inputs.base_url }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Base URL: ${{ env.BASE_URL || 'not configured' }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Trigger: ${{ github.event_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Readiness check: ${{ needs.readiness-check.result }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Backend health: ${{ needs.backend-health.result }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Preview smoke: ${{ needs.preview-smoke.result }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "${{ env.BASE_URL }}" ]; then
+            echo "- Warning: set repository variable PRODUCTION_BASE_URL to enable automatic post-deploy verification on main." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -z "${{ env.BACKEND_HEALTH_URL }}" ]; then
+            echo "- Warning: set repository variable BACKEND_HEALTH_URL to enable backend certification checks." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -z "${{ env.AI_CORE_SHARED_SECRET }}" ]; then
+            echo "- Warning: set repository secret AI_CORE_SHARED_SECRET to publish hosted verification and launch certification status into backend runtime state." >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -1,0 +1,45 @@
+services:
+  redis:
+    ports:
+      - "${LOCAL_REDIS_PORT:-6379}:6379"
+
+  backend-api:
+    build:
+      dockerfile: Dockerfile.local
+    entrypoint: ["sh", "/app/scripts/dev-entrypoint.sh"]
+    command: ["npm", "run", "dev:api"]
+    ports:
+      - "${LOCAL_BACKEND_PORT:-8080}:8080"
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+
+  backend-worker:
+    build:
+      dockerfile: Dockerfile.local
+    entrypoint: ["sh", "/app/scripts/dev-entrypoint.sh"]
+    command: ["npm", "run", "dev:worker"]
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+
+  backend-cleanup:
+    build:
+      dockerfile: Dockerfile.local
+    entrypoint: ["sh", "/app/scripts/dev-entrypoint.sh"]
+    command: ["npm", "run", "dev:cleanup"]
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+
+  frontend:
+    build:
+      dockerfile: Dockerfile.local
+    entrypoint: ["sh", "/app/scripts/dev-entrypoint.sh"]
+    command:
+      ["npx", "next", "dev", "--hostname", "0.0.0.0", "--port", "3000", "--webpack"]
+    ports:
+      - "${LOCAL_FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules

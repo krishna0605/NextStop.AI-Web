@@ -9,6 +9,7 @@ import {
   loadDashboardHomeData,
   loadLibraryPageData,
   loadMeetingDetail,
+  loadOpsReadinessData,
   loadWorkspaceOverview,
 } from "./workspace-server";
 
@@ -84,5 +85,15 @@ export async function requireMeetingDetail(meetingId: string) {
   return {
     ...context,
     detail,
+  };
+}
+
+export async function requireOpsReadinessData() {
+  const context = await requireWorkspaceAccess();
+  const data = await loadOpsReadinessData(context.supabase, context.user.id);
+
+  return {
+    ...context,
+    data,
   };
 }

@@ -1,48 +1,37 @@
 import { NextResponse } from "next/server";
 
-import { getAiCoreApiUrl, getMissingEnvSummary, getRuntimeReadiness } from "@/lib/env";
+import {
+  getMissingEnvSummary,
+  getRuntimeReadiness,
+  loadAiCoreHealthSnapshot,
+} from "@/lib/env";
 
 export const runtime = "nodejs";
-
-async function loadAiCoreHealth() {
-  const apiUrl = getAiCoreApiUrl();
-
-  if (!apiUrl) {
-    return null;
-  }
-
-  try {
-    const response = await fetch(new URL("/health", apiUrl).toString(), {
-      cache: "no-store",
-    });
-    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-
-    return {
-      ok: response.ok,
-      payload,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      payload: {
-        error: error instanceof Error ? error.message : "Unable to reach AI core health endpoint.",
-      },
-    };
-  }
-}
 
 export async function GET() {
   const readiness = getRuntimeReadiness();
   const missing = getMissingEnvSummary();
   const aiCoreHealth =
     readiness.aiPipelineMode === "railway_remote" && readiness.aiCoreConfigured
-      ? await loadAiCoreHealth()
+      ? await loadAiCoreHealthSnapshot()
+      : null;
+  const cleanupStatus =
+    aiCoreHealth?.payload?.cleanup && typeof aiCoreHealth.payload.cleanup === "object"
+      ? (aiCoreHealth.payload.cleanup as {
+          lastCleanupSuccessAt?: string | null;
+          lastCleanupError?: string | null;
+        })
       : null;
   const aiWorkerReady =
     aiCoreHealth?.ok &&
     aiCoreHealth.payload &&
     aiCoreHealth.payload.workerReady === true &&
-    aiCoreHealth.payload.directExecution === true;
+    aiCoreHealth.payload.directExecution === true &&
+    aiCoreHealth.payload.workerStale !== true;
+  const cleanupHealthy =
+    readiness.transcriptStorageMode === "disabled"
+      ? true
+      : Boolean(cleanupStatus?.lastCleanupSuccessAt) && !cleanupStatus?.lastCleanupError;
   const checks = [
     {
       name: "Supabase public auth",
@@ -81,11 +70,11 @@ export async function GET() {
         ? "Billing credentials are configured."
         : "One or more Razorpay server credentials are missing.",
     },
-    {
-      name: "Transcript policy",
-      status:
-        readiness.transcriptStorageMode === "disabled" || readiness.transcriptDownloadsEnabled
-          ? "pass"
+      {
+        name: "Transcript policy",
+        status:
+          readiness.transcriptStorageMode === "disabled" || readiness.transcriptDownloadsEnabled
+            ? "pass"
           : "warn",
       detail:
         readiness.transcriptStorageMode === "disabled"
@@ -115,19 +104,65 @@ export async function GET() {
                 ? aiCoreHealth.payload.error
                 : "Railway worker is not ready or direct execution is disabled.",
     },
+    {
+      name: "Retention cleanup",
+      status: cleanupHealthy ? "pass" : readiness.transcriptStorageMode === "disabled" ? "pass" : "warn",
+      detail:
+        readiness.transcriptStorageMode === "disabled"
+          ? "No shared transcript retention worker is required in findings-only mode."
+          : cleanupHealthy
+            ? "Cleanup worker has completed a successful retention run."
+            : typeof cleanupStatus?.lastCleanupError === "string"
+              ? cleanupStatus.lastCleanupError
+              : "Cleanup worker has not yet completed a successful retention run.",
+    },
   ];
+  const blockingFailures = checks
+    .filter((check) => check.status === "fail")
+    .map((check) => ({ name: check.name, detail: check.detail }));
+  const warnings = checks
+    .filter((check) => check.status === "warn")
+    .map((check) => ({ name: check.name, detail: check.detail }));
+  const launchDecision =
+    blockingFailures.length > 0 ? "blocked" : warnings.length > 0 ? "degraded" : "ready";
+  const frontendVersion =
+    process.env.RELEASE_VERSION?.trim() ||
+    process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
+    "dev";
+  const hostedVerification =
+    aiCoreHealth?.payload?.hostedVerification &&
+    typeof aiCoreHealth.payload.hostedVerification === "object"
+      ? aiCoreHealth.payload.hostedVerification
+      : null;
+  const launchCertification =
+    aiCoreHealth?.payload?.launchCertification &&
+    typeof aiCoreHealth.payload.launchCertification === "object"
+      ? aiCoreHealth.payload.launchCertification
+      : null;
 
   return NextResponse.json(
     {
-      ok: missing.length === 0,
+      ok: launchDecision === "ready",
       timestamp: new Date().toISOString(),
+      versions: {
+        frontendVersion,
+        workerVersion:
+          aiCoreHealth?.payload && typeof aiCoreHealth.payload.workerVersion === "string"
+            ? aiCoreHealth.payload.workerVersion
+            : null,
+      },
       readiness,
       aiCoreHealth: aiCoreHealth?.payload ?? null,
+      hostedVerification,
+      launchCertification,
       missing,
       checks,
+      blockingFailures,
+      warnings,
+      launchDecision,
     },
     {
-      status: missing.length === 0 ? 200 : 503,
+      status: launchDecision === "ready" ? 200 : 503,
     }
   );
 }

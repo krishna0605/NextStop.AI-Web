@@ -3,6 +3,11 @@ import "server-only";
 import crypto from "node:crypto";
 
 import { getMeetingStructuredContent } from "@/lib/ai-pipeline";
+import {
+  completeMeetingExport,
+  failMeetingExport,
+  startMeetingExport,
+} from "@/lib/meeting-exports";
 import { createAdminClient } from "@/lib/supabase-admin";
 import {
   getAppUrl,
@@ -716,23 +721,20 @@ export async function exportMeetingToNotion(userId: string, meetingId: string) {
     throw new Error("This meeting does not have findings ready for export yet.");
   }
 
-  const exportInsert = await admin
-    .from("meeting_exports")
-    .insert({
-      meeting_id: meetingId,
-      user_id: userId,
-      export_type: "notion",
-      status: "processing",
-      destination: integration.selected_destination_name ?? "configured destination",
-    })
-    .select("id")
-    .single();
-
-  if (exportInsert.error) {
-    throw exportInsert.error;
-  }
-
-  const exportId = exportInsert.data.id as string;
+  const exportLog = await startMeetingExport({
+    meetingId,
+    userId,
+    exportType: "notion",
+    destination: integration.selected_destination_name ?? "configured destination",
+    metadata: {
+      destination_type:
+        integration.metadata &&
+        typeof integration.metadata === "object" &&
+        typeof integration.metadata.destination_type === "string"
+          ? integration.metadata.destination_type
+          : null,
+    },
+  });
 
   try {
     const createdPage = await createNotionExportPage({
@@ -742,28 +744,23 @@ export async function exportMeetingToNotion(userId: string, meetingId: string) {
       integration,
     });
 
-    const { error: updateError } = await admin
-      .from("meeting_exports")
-      .update({
-        status: "completed",
-        metadata: {
-          notion_page_id: createdPage.id,
-          notion_page_url: createdPage.url ?? null,
-          destination_type:
-            integration.metadata &&
-            typeof integration.metadata === "object" &&
-            typeof integration.metadata.destination_type === "string"
-              ? integration.metadata.destination_type
-              : null,
-          exported_via: "next_api",
-        },
-      })
-      .eq("id", exportId)
-      .eq("user_id", userId);
-
-    if (updateError) {
-      throw updateError;
-    }
+    await completeMeetingExport({
+      exportId: exportLog.exportId,
+      userId,
+      status: "completed",
+      destination: integration.selected_destination_name ?? "configured destination",
+      startedAt: exportLog.startedAt,
+      metadata: {
+        notion_page_id: createdPage.id,
+        notion_page_url: createdPage.url ?? null,
+        destination_type:
+          integration.metadata &&
+          typeof integration.metadata === "object" &&
+          typeof integration.metadata.destination_type === "string"
+            ? integration.metadata.destination_type
+            : null,
+      },
+    });
 
     return {
       pageId: createdPage.id,
@@ -777,17 +774,20 @@ export async function exportMeetingToNotion(userId: string, meetingId: string) {
     const message =
       error instanceof Error ? error.message : "Unable to export the findings to Notion.";
 
-    await admin
-      .from("meeting_exports")
-      .update({
-        status: "failed",
-        metadata: {
-          error: message,
-          exported_via: "next_api",
-        },
-      })
-      .eq("id", exportId)
-      .eq("user_id", userId);
+    await failMeetingExport({
+      exportId: exportLog.exportId,
+      userId,
+      startedAt: exportLog.startedAt,
+      error: message,
+      metadata: {
+        destination_type:
+          integration.metadata &&
+          typeof integration.metadata === "object" &&
+          typeof integration.metadata.destination_type === "string"
+            ? integration.metadata.destination_type
+            : null,
+      },
+    });
 
     throw error;
   }

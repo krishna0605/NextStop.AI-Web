@@ -36,8 +36,14 @@ describe("WorkspaceLibrary", () => {
 
     expect(screen.getByText("Candidate Interview")).toBeInTheDocument();
     expect(screen.getByText("Product Review")).toBeInTheDocument();
-    expect(screen.getByText("Ready")).toBeInTheDocument();
-    expect(screen.getByText("Processing")).toBeInTheDocument();
+    expect(screen.getByText("Go To Market Sync")).toBeInTheDocument();
+    expect(screen.getAllByText("Ready").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Processing").length).toBeGreaterThan(0);
+    expect(screen.getByText("Degraded")).toBeInTheDocument();
+    expect(screen.getByText("Fallback mode")).toBeInTheDocument();
     expect(screen.getByText("normalizing")).toBeInTheDocument();
+    expect(screen.getByText("Design Review")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /download transcript/i })).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^cancel$/i }).length).toBeGreaterThan(0);
   });
 });

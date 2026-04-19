@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { internalServerErrorResponse } from "@/lib/http";
 import { exportMeetingToNotion, NotionIntegrationError } from "@/lib/notion-workspace";
+import { enforceRateLimit, recordSecurityAudit } from "@/lib/rate-limit";
 import { createClient } from "@/lib/supabase-server";
 
 export const runtime = "nodejs";
@@ -21,7 +22,29 @@ export async function POST(
       return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     }
 
+    const rateLimit = await enforceRateLimit({
+      policyName: "notion_export",
+      userId: user.id,
+      meetingId,
+    });
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          error: "Notion export rate limit reached. Retry in a few minutes.",
+          code: "rate_limited",
+          retryAfterSeconds: rateLimit.retryAfterSeconds,
+          policyName: rateLimit.policyName,
+        },
+        { status: 429 }
+      );
+    }
+
     const payload = await exportMeetingToNotion(user.id, meetingId);
+    await recordSecurityAudit({
+      type: "export_requested",
+      policyName: "notion_export",
+    });
 
     return NextResponse.json({
       ok: true,

@@ -1,0 +1,10 @@
+{
+  "name": "nextstop-readiness-deck",
+  "private": true,
+  "scripts": {
+    "build": "node nextstop-readiness-deck.js"
+  },
+  "dependencies": {
+    "pptxgenjs": "^3.12.0"
+  }
+}

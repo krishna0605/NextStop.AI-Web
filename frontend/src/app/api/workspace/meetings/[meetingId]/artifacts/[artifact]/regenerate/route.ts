@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { loadAiStatusSnapshot, queueArtifactRegeneration } from "@/lib/ai-pipeline";
 import { internalServerErrorResponse } from "@/lib/http";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient } from "@/lib/supabase-server";
 import type { MeetingArtifactType } from "@/lib/workspace";
@@ -32,6 +33,24 @@ export async function POST(
 
     if (!isAllowedArtifact(artifact)) {
       return NextResponse.json({ error: "Unsupported artifact type." }, { status: 400 });
+    }
+
+    const rateLimit = await enforceRateLimit({
+      policyName: "artifact_regenerate",
+      userId: user.id,
+      meetingId,
+    });
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          error: "Artifact regeneration rate limit reached. Retry in a few minutes.",
+          code: "rate_limited",
+          retryAfterSeconds: rateLimit.retryAfterSeconds,
+          policyName: rateLimit.policyName,
+        },
+        { status: 429 }
+      );
     }
 
     const admin = createAdminClient();

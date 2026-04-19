@@ -9,6 +9,7 @@ import { useState, Suspense } from "react";
 
 import { BrandLogo } from "@/components/BrandLogo";
 import { sanitizeNextPath } from "@/lib/billing";
+import { getBrowserAuthOrigin } from "@/lib/auth-origin";
 import { createClient } from "@/lib/supabase-browser";
 
 function LoginForm() {
@@ -45,10 +46,12 @@ function LoginForm() {
     setLoading(true);
     setError(null);
 
+    const authOrigin = getBrowserAuthOrigin();
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
+        redirectTo: `${authOrigin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
       },
     });
 

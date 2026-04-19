@@ -4,6 +4,7 @@ import { Button } from "@heroui/react";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
+  Download,
   ExternalLink,
   FileSearch,
   LoaderCircle,
@@ -11,13 +12,20 @@ import {
   PlayCircle,
   Radio,
   RefreshCcw,
+  Square,
   Video,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 import { useWorkspaceCaptureController } from "@/components/workspace/WorkspaceCaptureIsland";
+import { resolvePublicApiUrl } from "@/lib/public-backend";
+import {
+  getLibrarySurfaceState,
+  getSurfaceStatePresentation,
+  getTranscriptLifecycleCopy,
+} from "@/lib/workspace-status";
 import type { LibraryMeetingCard, LibraryPageData } from "@/lib/workspace";
 import { formatWorkspaceDate, MEETING_SOURCE_LABELS, MEETING_STATUS_COPY } from "@/lib/workspace";
 
@@ -64,6 +72,12 @@ function buildLibrarySearchParams(args: {
 }
 
 function formatPreviewCopy(meeting: LibraryMeetingCard) {
+  if (meeting.findingsGenerationStatus === "degraded_success") {
+    return meeting.findingsFallbackReason?.trim()
+      ? `Fallback findings generated: ${meeting.findingsFallbackReason}`
+      : "Fallback findings generated because the primary AI path did not complete.";
+  }
+
   if (meeting.summaryShort?.trim()) {
     return meeting.summaryShort;
   }
@@ -79,12 +93,27 @@ function formatPreviewCopy(meeting: LibraryMeetingCard) {
   return MEETING_STATUS_COPY[meeting.status].description;
 }
 
+async function downloadBlob(filename: string, response: Response) {
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 export function WorkspaceLibrary({ data }: { data: LibraryPageData }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [isNavigating, startTransition] = useTransition();
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<{
+    meetingId: string;
+    type: "cancel" | "transcript";
+  } | null>(null);
   const { openCaptureControls, setCaptureTarget } = useWorkspaceCaptureController();
 
   useEffect(() => {
@@ -147,6 +176,62 @@ export function WorkspaceLibrary({ data }: { data: LibraryPageData }) {
     );
   }
 
+  async function handleCancel(meetingId: string) {
+    setBusyAction({ meetingId, type: "cancel" });
+    setActionError(null);
+    try {
+      const response = await fetch(resolvePublicApiUrl(`/api/workspace/meetings/${meetingId}/cancel`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Unable to cancel this meeting.");
+      }
+
+      router.refresh();
+    } catch (caughtError) {
+      setActionError(
+        caughtError instanceof Error ? caughtError.message : "Unable to cancel this meeting."
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function handleTranscriptDownload(meeting: LibraryMeetingCard) {
+    setBusyAction({ meetingId: meeting.id, type: "transcript" });
+    setActionError(null);
+    try {
+      const response = await fetch(
+        resolvePublicApiUrl(`/api/workspace/meetings/${meeting.id}/transcript`)
+      );
+      const contentType = response.headers.get("content-type") ?? "";
+
+      if (!response.ok) {
+        const payload = contentType.includes("application/json")
+          ? ((await response.json()) as { error?: string })
+          : null;
+        throw new Error(payload?.error ?? "Temporary transcript is not available yet.");
+      }
+
+      await downloadBlob(
+        `${meeting.title.replace(/\s+/g, "-").toLowerCase()}-transcript.txt`,
+        response
+      );
+      router.refresh();
+    } catch (caughtError) {
+      setActionError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Temporary transcript is not available yet."
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <motion.section
@@ -204,6 +289,12 @@ export function WorkspaceLibrary({ data }: { data: LibraryPageData }) {
         </div>
       </motion.section>
 
+      {actionError ? (
+        <section className="rounded-[2rem] border border-red-500/20 bg-red-500/10 px-5 py-4 text-sm text-red-100">
+          {actionError}
+        </section>
+      ) : null}
+
       <section className="grid grid-cols-1 gap-4">
         {data.cards.length === 0 ? (
           <div className="rounded-[2rem] border border-dashed border-white/10 bg-zinc-950/50 px-6 py-14 text-center">
@@ -229,6 +320,11 @@ export function WorkspaceLibrary({ data }: { data: LibraryPageData }) {
         ) : (
           data.cards.map((meeting) => {
             const status = MEETING_STATUS_COPY[meeting.status];
+            const surfaceState = getLibrarySurfaceState(meeting);
+            const surfacePresentation = getSurfaceStatePresentation(
+              surfaceState,
+              meeting.findingsGenerationStatus
+            );
             const sourceLabel = MEETING_SOURCE_LABELS[meeting.sourceType];
             const platformLabel = originLabel(meeting.originPlatform);
             const primaryDate =
@@ -238,11 +334,13 @@ export function WorkspaceLibrary({ data }: { data: LibraryPageData }) {
             const isScheduled = meeting.status === "scheduled" || meeting.status === "draft";
             const isCapturing = [
               "capturing",
+              "finalizing_upload",
               "queued",
               "transcribing",
               "transcript_ready",
               "analyzing",
               "processing",
+              "cancel_requested",
             ].includes(meeting.status);
             const isReady =
               meeting.status === "ready" ||
@@ -263,8 +361,11 @@ export function WorkspaceLibrary({ data }: { data: LibraryPageData }) {
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="truncate text-xl font-semibold text-white">{meeting.title}</h2>
                       <span
-                        className={`rounded-full border px-2.5 py-1 text-xs ${toneClass(status.tone)}`}
+                        className={`rounded-full border px-2.5 py-1 text-xs ${toneClass(surfacePresentation.tone)}`}
                       >
+                        {surfacePresentation.label}
+                      </span>
+                      <span className={`rounded-full border px-2.5 py-1 text-xs ${toneClass(status.tone)}`}>
                         {status.label}
                       </span>
                       <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-zinc-200">
@@ -278,11 +379,17 @@ export function WorkspaceLibrary({ data }: { data: LibraryPageData }) {
                           {meeting.latestAiStage.replace(/_/g, " ")}
                         </span>
                       ) : null}
+                      {meeting.findingsGenerationMode === "fallback_local" ? (
+                        <span className="rounded-full border border-amber-300/20 bg-amber-400/10 px-2.5 py-1 text-xs text-amber-50">
+                          Fallback mode
+                        </span>
+                      ) : null}
                     </div>
                     <p className="mt-2 text-sm text-zinc-400">{primaryDate}</p>
                     <p className="mt-4 max-w-3xl text-sm leading-7 text-zinc-300">
                       {formatPreviewCopy(meeting)}
                     </p>
+                    <p className="mt-2 text-sm text-zinc-500">{surfacePresentation.detail}</p>
                   </div>
 
                   <div className="flex shrink-0 items-center gap-3 text-sm text-zinc-400">
@@ -349,7 +456,11 @@ export function WorkspaceLibrary({ data }: { data: LibraryPageData }) {
                         ? "Transcript available only on desktop"
                         : meeting.transcriptExpiresAt
                           ? `Transcript TTL until ${formatWorkspaceDate(meeting.transcriptExpiresAt)}`
-                          : "Structured outputs only"}
+                          : getTranscriptLifecycleCopy({
+                              status: "disabled",
+                              downloadEnabled: false,
+                              message: "",
+                            })}
                     </p>
                   </div>
                 </div>
@@ -411,6 +522,45 @@ export function WorkspaceLibrary({ data }: { data: LibraryPageData }) {
                       startContent={<Radio className="h-4 w-4" />}
                     >
                       Open Controls
+                    </Button>
+                  ) : null}
+
+                  {meeting.cancelable ? (
+                    <Button
+                      radius="full"
+                      onPress={() => void handleCancel(meeting.id)}
+                      isLoading={
+                        busyAction?.meetingId === meeting.id && busyAction.type === "cancel"
+                      }
+                      className="brand-button-secondary h-10 px-5 font-semibold"
+                      startContent={
+                        busyAction?.meetingId === meeting.id && busyAction.type === "cancel" ? (
+                          undefined
+                        ) : (
+                          <Square className="h-4 w-4" />
+                        )
+                      }
+                    >
+                      Cancel
+                    </Button>
+                  ) : null}
+
+                  {meeting.temporaryTranscriptReady ? (
+                    <Button
+                      radius="full"
+                      onPress={() => void handleTranscriptDownload(meeting)}
+                      isLoading={
+                        busyAction?.meetingId === meeting.id && busyAction.type === "transcript"
+                      }
+                      className="brand-button-secondary h-10 px-5 font-semibold"
+                      startContent={
+                        busyAction?.meetingId === meeting.id &&
+                        busyAction.type === "transcript" ? undefined : (
+                          <Download className="h-4 w-4" />
+                        )
+                      }
+                    >
+                      Download transcript
                     </Button>
                   ) : null}
                 </div>

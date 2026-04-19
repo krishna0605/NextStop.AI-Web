@@ -174,9 +174,18 @@ export function getRuntimeReadiness() {
       status:
         supabaseConfigured &&
         supabaseAdminConfigured &&
-        notionOauthConfigured
-          ? "ready"
-          : "attention_required",
+        notionOauthConfigured &&
+        (aiPipelineMode !== "railway_remote" || aiCoreConfigured) &&
+        Boolean(
+          readEnv("RAZORPAY_KEY_ID") &&
+            readEnv("RAZORPAY_KEY_SECRET") &&
+            readEnv("RAZORPAY_PLAN_ID") &&
+            readEnv("RAZORPAY_WEBHOOK_SECRET")
+        )
+          ? transcriptStorageMode === "disabled" || transcriptDownloadsEnabled
+            ? "ready"
+            : "degraded"
+          : "blocked",
       aiMode:
         aiPipelineMode === "railway_remote"
           ? aiCoreConfigured
@@ -226,4 +235,31 @@ export function getMissingEnvSummary() {
   }
 
   return missing;
+}
+
+export async function loadAiCoreHealthSnapshot() {
+  const apiUrl = getAiCoreApiUrl();
+
+  if (!apiUrl) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(new URL("/health", apiUrl).toString(), {
+      cache: "no-store",
+    });
+    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+
+    return {
+      ok: response.ok,
+      payload,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      payload: {
+        error: error instanceof Error ? error.message : "Unable to reach AI core health endpoint.",
+      },
+    };
+  }
 }

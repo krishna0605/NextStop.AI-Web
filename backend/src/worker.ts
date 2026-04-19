@@ -2,7 +2,7 @@ import { Worker, type Job } from "bullmq";
 
 import { executeQueuedJob } from "./ai-executor.js";
 import { getRedisConnection } from "./redis.js";
-import { markWorkerActivity, markWorkerReady } from "./worker-state.js";
+import { markWorkerActivity, markWorkerDegraded, markWorkerHeartbeat, markWorkerReady } from "./worker-state.js";
 
 type RemoteAiJobPayload = {
   jobId?: string;
@@ -69,6 +69,7 @@ worker.on("completed", (job) => {
 
 worker.on("failed", (job, error) => {
   markWorkerActivity(job?.name ?? "unknown", job?.data?.jobId ?? null);
+  markWorkerDegraded(error.message, job?.name ?? "unknown", job?.data?.jobId ?? null);
   console.error("[ai-core] Queued job failed", {
     queueJobId: job?.id ?? null,
     jobName: job?.name ?? null,
@@ -81,4 +82,12 @@ if (getPipelineMode() !== "railway_remote") {
   console.warn(
     "[ai-core] Worker started while AI_PIPELINE_MODE is not railway_remote. Remote jobs may never be enqueued from the web app."
   );
+}
+
+const idleHeartbeatIntervalMs = Number(process.env.WORKER_IDLE_HEARTBEAT_INTERVAL_MS ?? 30_000);
+
+if (Number.isFinite(idleHeartbeatIntervalMs) && idleHeartbeatIntervalMs > 0) {
+  setInterval(() => {
+    markWorkerHeartbeat();
+  }, idleHeartbeatIntervalMs).unref();
 }

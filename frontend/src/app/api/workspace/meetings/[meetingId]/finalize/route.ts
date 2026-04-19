@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 
-import {
-  queueMeetingProcessing,
-  uploadAudioAssetThroughServer,
-} from "@/lib/ai-pipeline";
+import { queueMeetingProcessing, uploadAudioAssetThroughServer } from "@/lib/ai-pipeline";
 import { internalServerErrorResponse } from "@/lib/http";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient } from "@/lib/supabase-server";
+import { finalizeMeetingCaptureSession } from "@/lib/workspace-capture-server";
 
 export const runtime = "nodejs";
 
@@ -27,6 +26,24 @@ export async function POST(
       return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     }
 
+    const rateLimit = await enforceRateLimit({
+      policyName: "meeting_finalize",
+      userId: user.id,
+      meetingId,
+    });
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          error: "Finalize rate limit reached. Retry in a few minutes.",
+          code: "rate_limited",
+          retryAfterSeconds: rateLimit.retryAfterSeconds,
+          policyName: rateLimit.policyName,
+        },
+        { status: 429 }
+      );
+    }
+
     const admin = createAdminClient();
     const { data: meeting, error: meetingError } = await admin
       .from("web_meetings")
@@ -44,6 +61,7 @@ export async function POST(
     }
 
     let sourceText = "";
+    let captureSessionId: string | null = null;
     let uploadedAsset:
       | {
           bucket: string;
@@ -72,6 +90,7 @@ export async function POST(
     } else {
       const body = (await request.json().catch(() => ({}))) as {
         sourceText?: string;
+        captureSessionId?: string;
         bucket?: string;
         path?: string;
         mimeType?: string;
@@ -79,6 +98,7 @@ export async function POST(
         checksum?: string;
       };
       sourceText = body.sourceText?.trim() || "";
+      captureSessionId = body.captureSessionId?.trim() || null;
       uploadedAsset =
         body.bucket && body.path
           ? {
@@ -91,6 +111,19 @@ export async function POST(
           : null;
     }
 
+    if (captureSessionId) {
+      const pipeline = await finalizeMeetingCaptureSession({
+        meetingId,
+        userId: user.id,
+        captureSessionId,
+      });
+
+      return NextResponse.json({
+        redirectTo: `/dashboard/review/${meetingId}`,
+        ...pipeline,
+      });
+    }
+
     const pipeline = await queueMeetingProcessing({
       meetingId,
       userId: user.id,
@@ -99,7 +132,6 @@ export async function POST(
     });
 
     return NextResponse.json({
-      meetingId,
       redirectTo: `/dashboard/review/${meetingId}`,
       ...pipeline,
     });

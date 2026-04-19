@@ -6,6 +6,7 @@ import type {
   MeetingArtifactRecord,
   MeetingExportRecord,
   MeetingFindingsRecord,
+  OpsReadinessData,
   TranscriptAvailability,
   WebMeetingRecord,
   WorkspaceOverview,
@@ -55,6 +56,15 @@ export const smokeProcessingMeeting: WebMeetingRecord = {
   },
 };
 
+export const smokeTranscriptReadyMeeting: WebMeetingRecord = {
+  id: "meeting-transcript-ready-1",
+  user_id: "user-1",
+  title: "Design Review",
+  source_type: "browser_tab",
+  status: "transcript_ready",
+  created_at: "2026-03-21T12:30:00.000Z",
+};
+
 export const smokeReadyFindings: MeetingFindingsRecord = {
   id: "findings-1",
   meeting_id: smokeReadyMeeting.id,
@@ -72,6 +82,9 @@ export const smokeReadyFindings: MeetingFindingsRecord = {
   risks_json: ["Need deeper assessment on distributed systems depth."],
   follow_ups_json: ["Share the final-round prep notes with the panel."],
   email_draft: "Sharing the interview findings and next-step recommendation.",
+  generation_mode: "openai_primary",
+  generation_status: "full_success",
+  fallback_reason: null,
   created_at: "2026-03-21T11:45:00.000Z",
 };
 
@@ -161,6 +174,10 @@ export const smokeAiStatusReady: AiStatusSnapshot = {
     analyzeMs: 950,
   },
   latestError: null,
+  findingsGenerationMode: "openai_primary",
+  findingsGenerationStatus: "full_success",
+  findingsFallbackReason: null,
+  surfaceState: "ready",
   pending: false,
 };
 
@@ -194,7 +211,55 @@ export const smokeAiStatusProcessing: AiStatusSnapshot = {
   findingsReadyAt: null,
   timings: null,
   latestError: null,
+  findingsGenerationMode: null,
+  findingsGenerationStatus: null,
+  findingsFallbackReason: null,
+  surfaceState: "processing",
   pending: true,
+  cancelable: true,
+  temporaryTranscriptReady: false,
+};
+
+export const smokeAiStatusTranscriptReady: AiStatusSnapshot = {
+  meetingId: smokeTranscriptReadyMeeting.id,
+  meetingStatus: "transcript_ready",
+  latestJob: {
+    id: "job-4",
+    meeting_id: smokeTranscriptReadyMeeting.id,
+    user_id: "user-1",
+    job_type: "analyze",
+    status: "running",
+    stage: "extracting",
+    provider_metadata: {
+      transcription: {
+        status: "ready",
+        sourceModel: "deepgram:nova-2",
+      },
+      findings: {
+        status: "running",
+      },
+    },
+    created_at: "2026-03-21T12:32:00.000Z",
+    updated_at: "2026-03-21T12:33:00.000Z",
+  },
+  artifacts: [],
+  transcriptAsset: null,
+  rawAudioAsset: null,
+  phase: "transcribing",
+  transcriptReadyAt: "2026-03-21T12:32:30.000Z",
+  findingsReadyAt: null,
+  timings: {
+    transcribeMs: 1400,
+  },
+  latestError: null,
+  findingsGenerationMode: null,
+  findingsGenerationStatus: null,
+  findingsFallbackReason: null,
+  surfaceState: "processing",
+  pending: true,
+  captureStatus: "queued_for_transcription",
+  cancelable: true,
+  temporaryTranscriptReady: true,
 };
 
 export const smokeTranscriptDisabled: TranscriptAvailability = {
@@ -202,6 +267,90 @@ export const smokeTranscriptDisabled: TranscriptAvailability = {
   downloadEnabled: false,
   message: "Transcript downloads are disabled for this production launch. Findings remain available.",
   expiresAt: null,
+};
+
+export const smokeTranscriptAvailable: TranscriptAvailability = {
+  status: "available",
+  downloadEnabled: true,
+  message: "Transcript downloads remain available for a short retention window.",
+  expiresAt: "2026-03-21T15:00:00.000Z",
+};
+
+export const smokeTranscriptNotReady: TranscriptAvailability = {
+  status: "not_ready",
+  downloadEnabled: false,
+  message: "Transcript is still processing and will be available shortly.",
+  expiresAt: null,
+};
+
+export const smokeDegradedMeeting: WebMeetingRecord = {
+  id: "meeting-degraded-1",
+  user_id: "user-1",
+  title: "Go To Market Sync",
+  source_type: "google_meet",
+  status: "partial_success",
+  created_at: "2026-03-21T14:00:00.000Z",
+};
+
+export const smokeDegradedFindings: MeetingFindingsRecord = {
+  id: "findings-degraded-1",
+  meeting_id: smokeDegradedMeeting.id,
+  user_id: "user-1",
+  status: "ready",
+  summary_short: "Fallback findings were generated after the primary model path failed.",
+  summary_full:
+    "The transcript was available, but structured findings were assembled via the local fallback path after the OpenAI request failed.",
+  executive_bullets_json: ["Primary model path failed", "Fallback findings are still reviewable"],
+  decisions_json: ["Review before external sharing."],
+  action_items_json: ["Retry extraction when the AI worker is healthy."],
+  risks_json: ["Some nuance may be missing from fallback extraction."],
+  follow_ups_json: ["Monitor worker health and re-run extraction."],
+  email_draft: "Sharing the fallback findings with a note to review them manually.",
+  generation_mode: "fallback_local",
+  generation_status: "degraded_success",
+  fallback_reason: "openai request timed out",
+  created_at: "2026-03-21T14:12:00.000Z",
+};
+
+export const smokeAiStatusDegraded: AiStatusSnapshot = {
+  meetingId: smokeDegradedMeeting.id,
+  meetingStatus: "partial_success",
+  latestJob: {
+    id: "job-3",
+    meeting_id: smokeDegradedMeeting.id,
+    user_id: "user-1",
+    job_type: "analyze",
+    status: "partial_success",
+    stage: "completed",
+    provider_metadata: {
+      transcription: {
+        status: "ready",
+        sourceModel: "deepgram:nova-2",
+      },
+      findings: {
+        status: "degraded_success",
+        sourceModel: "fallback-local",
+      },
+    },
+    created_at: "2026-03-21T14:08:00.000Z",
+    updated_at: "2026-03-21T14:12:00.000Z",
+  },
+  artifacts: [],
+  transcriptAsset: null,
+  rawAudioAsset: null,
+  phase: "ready",
+  transcriptReadyAt: "2026-03-21T14:09:00.000Z",
+  findingsReadyAt: "2026-03-21T14:12:00.000Z",
+  timings: {
+    transcribeMs: 1300,
+    analyzeMs: 2100,
+  },
+  latestError: null,
+  findingsGenerationMode: "fallback_local",
+  findingsGenerationStatus: "degraded_success",
+  findingsFallbackReason: "openai request timed out",
+  surfaceState: "degraded",
+  pending: false,
 };
 
 export const smokeWorkspaceOverview: WorkspaceOverview = {
@@ -212,11 +361,13 @@ export const smokeWorkspaceOverview: WorkspaceOverview = {
       ...smokeProcessingMeeting,
       status: "processing",
     },
+    smokeDegradedMeeting,
     smokeReadyMeeting,
   ],
   latestAiJob: smokeAiStatusProcessing.latestJob,
   findingsByMeetingId: {
     [smokeReadyMeeting.id]: smokeReadyFindings,
+    [smokeDegradedMeeting.id]: smokeDegradedFindings,
   },
   exportsByMeetingId: {
     [smokeReadyMeeting.id]: smokeMeetingExports,
@@ -224,6 +375,8 @@ export const smokeWorkspaceOverview: WorkspaceOverview = {
   aiStatusByMeetingId: {
     [smokeReadyMeeting.id]: smokeAiStatusReady,
     [smokeProcessingMeeting.id]: smokeAiStatusProcessing,
+    [smokeDegradedMeeting.id]: smokeAiStatusDegraded,
+    [smokeTranscriptReadyMeeting.id]: smokeAiStatusTranscriptReady,
   },
   providerStatus: {
     deepgramConfigured: true,
@@ -239,6 +392,184 @@ export const smokeWorkspaceOverview: WorkspaceOverview = {
     rawAssetRetentionHours: 24,
     aiPipelineMode: "railway_remote",
   },
+};
+
+export const smokeOpsReadinessData: OpsReadinessData = {
+  checks: [
+    {
+      name: "Frontend app URL",
+      status: "pass",
+      detail: "https://app.nextstop.ai",
+    },
+    {
+      name: "AI core direct execution",
+      status: "warn",
+      detail: "Railway worker is ready, but one recent meeting completed in degraded mode.",
+    },
+    {
+      name: "Retention cleanup",
+      status: "warn",
+      detail: "Cleanup is running, but there are still expired assets pending deletion.",
+    },
+  ],
+  blockingFailures: [],
+  warnings: [
+    {
+      name: "AI degraded mode",
+      detail: "Fallback findings were generated for one recent meeting.",
+    },
+    {
+      name: "Retention cleanup",
+      detail: "Cleanup is healthy but still has pending expired assets to delete.",
+    },
+  ],
+  launchDecision: "degraded",
+  aiCoreHealth: {
+    ok: true,
+    queue: "nextstop-ai-jobs",
+    workerReady: true,
+    directExecution: false,
+  },
+  recentAiFailures: [
+    {
+      id: "job-fail-1",
+      meetingId: "meeting-ready-1",
+      jobType: "transcribe",
+      stage: "transcribing",
+      status: "failed",
+      error: "Deepgram returned an empty transcript.",
+      executionMode: "railway_remote",
+      findingsGenerationStatus: "failed",
+      createdAt: "2026-03-21T12:10:00.000Z",
+    },
+  ],
+  recentDegradedMeetings: [
+    {
+      meetingId: smokeDegradedMeeting.id,
+      title: smokeDegradedMeeting.title,
+      generationMode: "fallback_local",
+      generationStatus: "degraded_success",
+      fallbackReason: "openai request timed out",
+      updatedAt: "2026-03-21T14:12:00.000Z",
+    },
+  ],
+  recentExportFailures: [
+    {
+      id: "export-fail-1",
+      meetingId: "meeting-ready-1",
+      exportType: "pdf",
+      status: "failed",
+      destination: "browser download",
+      latestError: "PDF generation timed out.",
+      durationMs: 1842,
+      createdAt: "2026-03-21T12:12:00.000Z",
+    },
+  ],
+  appUrl: "https://app.nextstop.ai",
+  backendApiUrl: "https://nextstopai-web-backend-production.up.railway.app",
+  aiCoreApiUrl: "https://nextstopai-web-backend-production.up.railway.app",
+  workerReady: true,
+  queueName: "nextstop-ai-jobs",
+  lastWorkerHeartbeatAt: "2026-03-21T12:09:00.000Z",
+  workerVersion: "2026.04.18-hardening",
+  cleanup: {
+    lastCleanupRunAt: "2026-03-21T12:15:00.000Z",
+    lastCleanupSuccessAt: "2026-03-21T12:15:00.000Z",
+    lastCleanupError: null,
+    deletedAudioAssetCount: 6,
+    deletedTranscriptAssetCount: 4,
+    pendingExpiredAssetCount: 2,
+  },
+  security: {
+    lastEventAt: "2026-03-21T12:16:00.000Z",
+    lastRateLimitDeniedAt: "2026-03-21T12:16:00.000Z",
+    lastTranscriptDownloadGrantedAt: "2026-03-21T12:14:00.000Z",
+    lastTranscriptDownloadBlockedAt: "2026-03-21T12:15:00.000Z",
+    lastExportRequestedAt: "2026-03-21T12:13:00.000Z",
+    rateLimitDeniedCount: 3,
+    transcriptDownloadGrantedCount: 5,
+    transcriptDownloadBlockedCount: 2,
+    exportRequestedCount: 7,
+    denialByPolicy: {
+      transcript_download: 2,
+      pdf_export: 1,
+    },
+    transcriptBlocksByReason: {
+      expired: 1,
+      deleted: 1,
+    },
+    exportRequestsByPolicy: {
+      pdf_export: 4,
+      notion_export: 3,
+    },
+  },
+  hostedVerification: {
+    lastHostedVerificationAt: "2026-03-21T12:20:00.000Z",
+    lastHostedVerificationStatus: "partial",
+    lastHostedVerificationScenario: "browser_close_after_end",
+    lastHostedVerificationFailureReason:
+      "Manual durable-flow scenarios are partially complete; deployment smoke is green.",
+    source: "workflow",
+    scenarios: {
+      readiness_api: {
+        status: "pass",
+        detail: "Readiness endpoint returned a launch decision and healthy checks.",
+        checkedAt: "2026-03-21T12:17:00.000Z",
+      },
+      backend_health: {
+        status: "pass",
+        detail: "Worker heartbeat and cleanup health were healthy.",
+        checkedAt: "2026-03-21T12:17:30.000Z",
+      },
+      browser_close_after_end: {
+        status: "partial",
+        detail: "Manual verification is still required after the next production deploy.",
+        checkedAt: "2026-03-21T12:20:00.000Z",
+      },
+    },
+  },
+  launchCertification: {
+    lastLaunchCertificationAt: "2026-03-21T12:21:00.000Z",
+    lastLaunchCertificationStatus: "pending",
+    certifiedBy: "engineering@nextstop.ai",
+    certificationNotes: "Waiting for full durable-flow hosted verification before broad-green launch.",
+    validationGreen: true,
+    hostedVerificationPassed: false,
+    operationalProofComplete: false,
+    readinessLaunchDecision: "degraded",
+  },
+  captureRuntime: {
+    activeCaptureSessionCount: 2,
+    staleCaptureSessionCount: 0,
+    finalizationBacklogCount: 1,
+    transcriptReadyAwaitingAnalysisCount: 1,
+    cancelRequestedJobCount: 1,
+    sessions: [
+      {
+        captureSessionId: "capture-1",
+        meetingId: smokeTranscriptReadyMeeting.id,
+        meetingTitle: smokeTranscriptReadyMeeting.title,
+        status: "queued_for_transcription",
+        lastHeartbeatAt: "2026-03-21T12:31:00.000Z",
+        lastChunkReceivedAt: "2026-03-21T12:30:45.000Z",
+        totalChunksReceived: 24,
+        totalBytesReceived: 1840000,
+        error: null,
+      },
+      {
+        captureSessionId: "capture-2",
+        meetingId: smokeProcessingMeeting.id,
+        meetingTitle: smokeProcessingMeeting.title,
+        status: "materializing_audio",
+        lastHeartbeatAt: "2026-03-21T12:02:00.000Z",
+        lastChunkReceivedAt: "2026-03-21T12:01:40.000Z",
+        totalChunksReceived: 12,
+        totalBytesReceived: 920000,
+        error: null,
+      },
+    ],
+  },
+  lastDeployHint: "Use the post-deploy verification workflow summary to confirm the latest Vercel and Railway release.",
 };
 
 export const smokeDashboardHomeData: DashboardHomeData = {
@@ -270,8 +601,64 @@ export const smokeLibraryPageData: LibraryPageData = {
       exportCount: 0,
       artifactCount: 0,
       transcriptExpiresAt: null,
+      findingsGenerationMode: null,
+      findingsGenerationStatus: null,
+      findingsFallbackReason: null,
+      reviewState: "processing",
       meetUrl: "https://meet.google.com/example",
       eventUrl: "https://calendar.google.com/event?eid=abc",
+    },
+    {
+      id: smokeTranscriptReadyMeeting.id,
+      title: smokeTranscriptReadyMeeting.title,
+      status: "transcript_ready",
+      sourceType: smokeTranscriptReadyMeeting.source_type,
+      originPlatform: smokeTranscriptReadyMeeting.origin_platform ?? "web",
+      googleEventId: smokeTranscriptReadyMeeting.google_event_id ?? null,
+      createdAt: smokeTranscriptReadyMeeting.created_at ?? null,
+      endedAt: smokeTranscriptReadyMeeting.ended_at ?? null,
+      scheduledStart: null,
+      summaryShort: null,
+      latestAiStage: "extracting",
+      latestAiJobStatus: "running",
+      latestError: null,
+      phase: "transcribing",
+      captureStatus: "queued_for_transcription",
+      cancelable: true,
+      temporaryTranscriptReady: true,
+      exportCount: 0,
+      artifactCount: 0,
+      transcriptExpiresAt: "2026-03-21T15:30:00.000Z",
+      findingsGenerationMode: null,
+      findingsGenerationStatus: null,
+      findingsFallbackReason: null,
+      reviewState: "processing",
+      meetUrl: null,
+      eventUrl: null,
+    },
+    {
+      id: smokeDegradedMeeting.id,
+      title: smokeDegradedMeeting.title,
+      status: "partial_success",
+      sourceType: smokeDegradedMeeting.source_type,
+      originPlatform: smokeDegradedMeeting.origin_platform ?? "web",
+      googleEventId: smokeDegradedMeeting.google_event_id ?? null,
+      createdAt: smokeDegradedMeeting.created_at ?? null,
+      endedAt: smokeDegradedMeeting.ended_at ?? null,
+      scheduledStart: null,
+      summaryShort: smokeDegradedFindings.summary_short ?? null,
+      latestAiStage: "completed",
+      latestError: null,
+      phase: "ready",
+      exportCount: 0,
+      artifactCount: 0,
+      transcriptExpiresAt: "2026-03-21T15:00:00.000Z",
+      findingsGenerationMode: "fallback_local",
+      findingsGenerationStatus: "degraded_success",
+      findingsFallbackReason: "openai request timed out",
+      reviewState: "degraded",
+      meetUrl: null,
+      eventUrl: null,
     },
     {
       id: smokeReadyMeeting.id,
@@ -290,6 +677,10 @@ export const smokeLibraryPageData: LibraryPageData = {
       exportCount: smokeMeetingExports.length,
       artifactCount: smokeMeetingArtifacts.length,
       transcriptExpiresAt: null,
+      findingsGenerationMode: "openai_primary",
+      findingsGenerationStatus: "full_success",
+      findingsFallbackReason: null,
+      reviewState: "ready",
       meetUrl: null,
       eventUrl: null,
     },

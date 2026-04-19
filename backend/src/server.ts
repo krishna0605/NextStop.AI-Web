@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 
-import { getAiQueue } from "./queue.js";
+import { getAiQueue, removeQueuedAiJob } from "./queue.js";
 import {
   buildEntitlements,
   createAdminClient,
@@ -8,6 +8,14 @@ import {
   requireUserFromAuthHeader,
   resolveBillingSnapshot,
 } from "./supabase.js";
+import {
+  loadCleanupStatus,
+  loadHostedVerificationStatus,
+  loadLaunchCertificationStatus,
+  loadSecurityStatus,
+  recordHostedVerification,
+  recordLaunchCertification,
+} from "./runtime-status.js";
 import { getWorkerState } from "./worker-state.js";
 
 type TranscriptionJobPayload = {
@@ -24,19 +32,97 @@ const app = Fastify({ logger: true });
 const queue = getAiQueue();
 
 app.get("/health", async () => {
-  const worker = getWorkerState();
+  const [worker, cleanup, security, hostedVerification, launchCertification] = await Promise.all([
+    getWorkerState(),
+    loadCleanupStatus(),
+    loadSecurityStatus(),
+    loadHostedVerificationStatus(),
+    loadLaunchCertificationStatus(),
+  ]);
   return {
     ok: true,
     service: "nextstop-ai-core",
     queue: "nextstop-ai-jobs",
     directExecution: worker.directExecution,
     workerReady: worker.workerReady,
-    lastWorkerHeartbeatAt: worker.lastWorkerHeartbeatAt,
-    lastJobName: worker.lastJobName,
+    workerVersion: worker.workerVersion,
+    degradedReason: worker.degradedReason,
+    workerStale: worker.stale,
+    lastWorkerHeartbeatAt: worker.lastHeartbeatAt,
+    lastJobName: worker.lastProcessedJobName,
+    lastAiJobId: worker.lastProcessedJobId,
+    cleanup,
+    security,
+    hostedVerification,
+    launchCertification,
     aiPipelineMode: process.env.AI_PIPELINE_MODE ?? "railway_remote",
     deepgramConfigured: Boolean(process.env.DEEPGRAM_API_KEY),
     openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
   };
+});
+
+app.get("/metrics", async (_request, reply) => {
+  const [worker, cleanup, security, hostedVerification, launchCertification] = await Promise.all([
+    getWorkerState(),
+    loadCleanupStatus(),
+    loadSecurityStatus(),
+    loadHostedVerificationStatus(),
+    loadLaunchCertificationStatus(),
+  ]);
+  const heartbeatAgeSeconds =
+    worker.lastHeartbeatAt && !Number.isNaN(new Date(worker.lastHeartbeatAt).getTime())
+      ? Math.max(0, Math.round((Date.now() - new Date(worker.lastHeartbeatAt).getTime()) / 1000))
+      : -1;
+  const lines = [
+    "# HELP nextstop_api_up Whether the NextStop local API is running.",
+    "# TYPE nextstop_api_up gauge",
+    "nextstop_api_up 1",
+    "# HELP nextstop_api_process_uptime_seconds Node.js process uptime in seconds.",
+    "# TYPE nextstop_api_process_uptime_seconds gauge",
+    `nextstop_api_process_uptime_seconds ${process.uptime().toFixed(2)}`,
+    "# HELP nextstop_api_worker_ready Whether the local API process has observed a worker-ready signal.",
+    "# TYPE nextstop_api_worker_ready gauge",
+    `nextstop_api_worker_ready ${worker.workerReady ? 1 : 0}`,
+    "# HELP nextstop_api_worker_stale Whether the worker heartbeat is stale.",
+    "# TYPE nextstop_api_worker_stale gauge",
+    `nextstop_api_worker_stale ${worker.stale ? 1 : 0}`,
+    "# HELP nextstop_api_direct_execution Whether direct execution mode is enabled.",
+    "# TYPE nextstop_api_direct_execution gauge",
+    `nextstop_api_direct_execution ${worker.directExecution ? 1 : 0}`,
+    "# HELP nextstop_api_worker_heartbeat_age_seconds Age of the latest worker heartbeat in seconds.",
+    "# TYPE nextstop_api_worker_heartbeat_age_seconds gauge",
+    `nextstop_api_worker_heartbeat_age_seconds ${heartbeatAgeSeconds}`,
+    "# HELP nextstop_cleanup_deleted_audio_assets_total Total raw-audio assets deleted by cleanup.",
+    "# TYPE nextstop_cleanup_deleted_audio_assets_total counter",
+    `nextstop_cleanup_deleted_audio_assets_total ${cleanup.deletedAudioAssetCount}`,
+    "# HELP nextstop_cleanup_deleted_transcript_assets_total Total transcript assets deleted by cleanup.",
+    "# TYPE nextstop_cleanup_deleted_transcript_assets_total counter",
+    `nextstop_cleanup_deleted_transcript_assets_total ${cleanup.deletedTranscriptAssetCount}`,
+    "# HELP nextstop_cleanup_pending_expired_assets Number of expired assets still pending cleanup.",
+    "# TYPE nextstop_cleanup_pending_expired_assets gauge",
+    `nextstop_cleanup_pending_expired_assets ${cleanup.pendingExpiredAssetCount}`,
+    "# HELP nextstop_security_rate_limit_denied_total Total denied requests due to rate limiting.",
+    "# TYPE nextstop_security_rate_limit_denied_total counter",
+    `nextstop_security_rate_limit_denied_total ${security.rateLimitDeniedCount}`,
+    "# HELP nextstop_security_transcript_download_granted_total Total allowed transcript downloads.",
+    "# TYPE nextstop_security_transcript_download_granted_total counter",
+    `nextstop_security_transcript_download_granted_total ${security.transcriptDownloadGrantedCount}`,
+    "# HELP nextstop_security_transcript_download_blocked_total Total blocked transcript downloads.",
+    "# TYPE nextstop_security_transcript_download_blocked_total counter",
+    `nextstop_security_transcript_download_blocked_total ${security.transcriptDownloadBlockedCount}`,
+    "# HELP nextstop_security_export_requested_total Total export requests observed by app routes.",
+    "# TYPE nextstop_security_export_requested_total counter",
+    `nextstop_security_export_requested_total ${security.exportRequestedCount}`,
+    "# HELP nextstop_hosted_verification_passed Whether the latest hosted verification run passed.",
+    "# TYPE nextstop_hosted_verification_passed gauge",
+    `nextstop_hosted_verification_passed ${hostedVerification.lastHostedVerificationStatus === "pass" ? 1 : 0}`,
+    "# HELP nextstop_launch_certified Whether the latest launch certification is active.",
+    "# TYPE nextstop_launch_certified gauge",
+    `nextstop_launch_certified ${launchCertification.lastLaunchCertificationStatus === "certified" ? 1 : 0}`,
+  ];
+
+  reply.header("content-type", "text/plain; version=0.0.4; charset=utf-8");
+  return `${lines.join("\n")}\n`;
 });
 
 function requireSecret(authHeader?: string) {
@@ -77,6 +163,87 @@ function assertRegenerationPayload(body: unknown): RegenerationJobPayload {
   return {
     ...base,
     artifactType: payload.artifactType,
+  };
+}
+
+function assertHostedVerificationBody(body: unknown) {
+  const payload = asObject(body);
+
+  if (!payload) {
+    throw new Error("Invalid hosted verification payload.");
+  }
+
+  const status = asString(payload.status);
+  const allowedStatuses = new Set(["unknown", "pass", "fail", "blocked", "partial"]);
+
+  if (!status || !allowedStatuses.has(status)) {
+    throw new Error("status must be one of unknown, pass, fail, blocked, or partial.");
+  }
+
+  const rawScenarios = asObject(payload.scenarios) ?? {};
+  const scenarios = Object.fromEntries(
+    Object.entries(rawScenarios).map(([name, value]) => {
+      const scenario = asObject(value) ?? {};
+      const scenarioStatus = asString(scenario.status) ?? "unknown";
+
+      if (!allowedStatuses.has(scenarioStatus)) {
+        throw new Error(`Scenario ${name} has an invalid status.`);
+      }
+
+      return [
+        name,
+        {
+          status: scenarioStatus as "unknown" | "pass" | "fail" | "blocked" | "partial",
+          detail: asString(scenario.detail),
+          checkedAt: asIsoString(scenario.checkedAt),
+        },
+      ];
+    })
+  );
+
+  return {
+    status: status as "unknown" | "pass" | "fail" | "blocked" | "partial",
+    scenario: asString(payload.scenario),
+    failureReason: asString(payload.failureReason),
+    source: asString(payload.source),
+    lastHostedVerificationAt: asIsoString(payload.lastHostedVerificationAt),
+    scenarios,
+  };
+}
+
+function assertLaunchCertificationBody(body: unknown) {
+  const payload = asObject(body);
+
+  if (!payload) {
+    throw new Error("Invalid launch certification payload.");
+  }
+
+  const status = asString(payload.status);
+  const allowedStatuses = new Set(["pending", "certified", "blocked"]);
+
+  if (!status || !allowedStatuses.has(status)) {
+    throw new Error("status must be one of pending, certified, or blocked.");
+  }
+
+  const readinessLaunchDecision = asString(payload.readinessLaunchDecision);
+
+  if (
+    readinessLaunchDecision &&
+    !new Set(["ready", "degraded", "blocked"]).has(readinessLaunchDecision)
+  ) {
+    throw new Error("readinessLaunchDecision must be ready, degraded, or blocked.");
+  }
+
+  return {
+    status: status as "pending" | "certified" | "blocked",
+    certifiedBy: asString(payload.certifiedBy),
+    certificationNotes: asString(payload.certificationNotes),
+    validationGreen: payload.validationGreen === true,
+    hostedVerificationPassed: payload.hostedVerificationPassed === true,
+    operationalProofComplete: payload.operationalProofComplete === true,
+    readinessLaunchDecision: (readinessLaunchDecision ??
+      null) as "ready" | "degraded" | "blocked" | null,
+    lastLaunchCertificationAt: asIsoString(payload.lastLaunchCertificationAt),
   };
 }
 
@@ -328,6 +495,60 @@ app.post("/jobs/analyze", async (request, reply) => {
   } catch (error) {
     reply.status(error instanceof Error && error.message === "Unauthorized" ? 401 : 400);
     return { error: error instanceof Error ? error.message : "Unable to enqueue analysis." };
+  }
+});
+
+app.post("/jobs/cancel", async (request, reply) => {
+  try {
+    requireSecret(request.headers.authorization);
+    const body = asObject(request.body);
+    const jobId = asString(body?.jobId);
+
+    if (!jobId) {
+      reply.status(400);
+      return { error: "jobId is required." };
+    }
+
+    const result = await removeQueuedAiJob(jobId);
+    return {
+      ok: true,
+      jobId,
+      removed: result.removed,
+      missing: result.missing,
+    };
+  } catch (error) {
+    reply.status(error instanceof Error && error.message === "Unauthorized" ? 401 : 400);
+    return { error: error instanceof Error ? error.message : "Unable to cancel queued job." };
+  }
+});
+
+app.post("/runtime/hosted-verification", async (request, reply) => {
+  try {
+    requireSecret(request.headers.authorization);
+    const payload = assertHostedVerificationBody(request.body);
+    recordHostedVerification(payload);
+    return { ok: true, hostedVerification: payload };
+  } catch (error) {
+    reply.status(error instanceof Error && error.message === "Unauthorized" ? 401 : 400);
+    return {
+      error:
+        error instanceof Error ? error.message : "Unable to record hosted verification status.",
+    };
+  }
+});
+
+app.post("/runtime/launch-certification", async (request, reply) => {
+  try {
+    requireSecret(request.headers.authorization);
+    const payload = assertLaunchCertificationBody(request.body);
+    recordLaunchCertification(payload);
+    return { ok: true, launchCertification: payload };
+  } catch (error) {
+    reply.status(error instanceof Error && error.message === "Unauthorized" ? 401 : 400);
+    return {
+      error:
+        error instanceof Error ? error.message : "Unable to record launch certification status.",
+    };
   }
 });
 

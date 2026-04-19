@@ -6,6 +6,7 @@
     "start": "tsx src/index.ts",
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --environment node",
     "start:api": "tsx src/server.ts",
     "start:worker": "tsx src/worker.ts",
     "start:cleanup": "tsx src/cleanup.ts",
@@ -16,7 +17,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.99.1",
     "bullmq": "^5.56.4",
-    "fastify": "^5.8.4",
+    "fastify": "^5.8.5",
     "ioredis": "^5.8.0"
   },
   "devDependencies": {

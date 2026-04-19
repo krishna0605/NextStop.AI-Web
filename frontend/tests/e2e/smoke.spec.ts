@@ -50,8 +50,16 @@ test("renders smoke workspace states with deterministic fixtures", async ({ page
   await page.goto("/smoke");
 
   await expect(page.getByRole("heading", { name: "Workspace smoke states" })).toBeVisible();
-  await expect(page.getByText("Google needs to be reconnected")).toBeVisible();
-  await expect(page.getByText("Choose where findings will land")).toBeVisible();
+  await expect(
+    page.getByLabel("Google reconnect state").getByRole("heading", {
+      name: "Google needs to be reconnected",
+    })
+  ).toBeVisible();
+  await expect(
+    page.getByLabel("Notion destination state").getByRole("heading", {
+      name: "Choose where findings will land",
+    })
+  ).toBeVisible();
   await expect(
     page.getByLabel("Library state").getByRole("heading", { name: "Candidate Interview" })
   ).toBeVisible();

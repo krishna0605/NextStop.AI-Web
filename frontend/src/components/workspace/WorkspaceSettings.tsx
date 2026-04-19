@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import {
+  Activity,
   BrainCircuit,
   CreditCard,
   KeyRound,
@@ -111,6 +112,13 @@ export function WorkspaceSettings({
               : "Notion OAuth configuration is still incomplete.",
       icon: NotebookTabs,
       href: "/dashboard/notion",
+    },
+    {
+      title: "Operations",
+      description:
+        "Open the production readiness console to inspect worker health, recent failures, runtime boundaries, and deployment-state hints.",
+      icon: Activity,
+      href: "/dashboard/ops",
     },
     {
       title: "Billing",

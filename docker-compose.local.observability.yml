@@ -1,0 +1,31 @@
+services:
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:v2.54.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    ports:
+      - "${LOCAL_PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./ops/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      backend-api:
+        condition: service_healthy
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana:11.2.0
+    ports:
+      - "${LOCAL_GRAFANA_PORT:-3002}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./ops/observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./ops/observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./ops/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_started

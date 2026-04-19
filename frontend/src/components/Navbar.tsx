@@ -23,6 +23,7 @@ const navLinks = [
 
 export function Navbar() {
   const [user, setUser] = useState<User | null>(null);
+  const [isVisible, setIsVisible] = useState(true);
   const [supabase] = useState(() => createClient());
   const auth = supabase.auth;
   const pathname = usePathname();
@@ -42,6 +43,41 @@ export function Navbar() {
     return () => subscription.unsubscribe();
   }, [auth]);
 
+  useEffect(() => {
+    let previousScrollY = window.scrollY;
+    let ticking = false;
+
+    function updateVisibility() {
+      const currentScrollY = window.scrollY;
+      const delta = currentScrollY - previousScrollY;
+      const nearTop = currentScrollY < 48;
+
+      if (nearTop) {
+        setIsVisible(true);
+      } else if (Math.abs(delta) >= 10) {
+        setIsVisible(delta < 0);
+      }
+
+      previousScrollY = currentScrollY;
+      ticking = false;
+    }
+
+    function handleScroll() {
+      if (ticking) {
+        return;
+      }
+
+      ticking = true;
+      window.requestAnimationFrame(updateVisibility);
+    }
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
+
   function handleDownload() {
     showToast("Download link copied! Check your clipboard.");
   }
@@ -50,7 +86,11 @@ export function Navbar() {
     <div className="fixed inset-x-0 top-0 z-50 px-4 pt-4 sm:px-6">
       <motion.nav
         initial={{ y: -28, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
+        animate={{
+          y: isVisible ? 0 : -96,
+          opacity: isVisible ? 1 : 0,
+          pointerEvents: isVisible ? "auto" : "none",
+        }}
         transition={{ duration: 0.45, ease: "easeOut" }}
         className="navbar-capsule relative mx-auto flex h-16 w-full max-w-7xl items-center justify-between rounded-full px-5 shadow-[0_12px_40px_-28px_rgba(0,0,0,0.9)] supports-[backdrop-filter]:bg-black/62"
       >

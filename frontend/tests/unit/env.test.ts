@@ -53,7 +53,7 @@ describe("env readiness", () => {
 
     expect(readiness.supabaseConfigured).toBe(true);
     expect(readiness.supabaseAdminConfigured).toBe(false);
-    expect(readiness.launchSummary.status).toBe("attention_required");
+    expect(readiness.launchSummary.status).toBe("blocked");
     expect(missing).toContain("APP_URL / NEXT_PUBLIC_APP_URL");
     expect(missing).toContain("SUPABASE_SERVICE_ROLE_KEY");
     expect(missing).toContain("NOTION_CLIENT_ID / NOTION_CLIENT_SECRET / NOTION_OAUTH_STATE_SECRET");

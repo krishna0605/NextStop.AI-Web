@@ -3,6 +3,12 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 import { getMeetingStructuredContent } from "@/lib/ai-pipeline";
 import { buildDownloadFilename, internalServerErrorResponse } from "@/lib/http";
+import {
+  completeMeetingExport,
+  failMeetingExport,
+  startMeetingExport,
+} from "@/lib/meeting-exports";
+import { enforceRateLimit, recordSecurityAudit } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient } from "@/lib/supabase-server";
 import type {
@@ -97,6 +103,14 @@ export async function POST(
   _request: Request,
   { params }: { params: Promise<{ meetingId: string }> }
 ) {
+  let exportLog:
+    | {
+        exportId: string;
+        startedAt: number;
+      }
+    | null = null;
+  let userId: string | null = null;
+
   try {
     const { meetingId } = await params;
     const supabase = await createClient();
@@ -106,6 +120,25 @@ export async function POST(
 
     if (!user) {
       return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    }
+    userId = user.id;
+
+    const rateLimit = await enforceRateLimit({
+      policyName: "pdf_export",
+      userId: user.id,
+      meetingId,
+    });
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          error: "PDF export rate limit reached. Retry in a few minutes.",
+          code: "rate_limited",
+          retryAfterSeconds: rateLimit.retryAfterSeconds,
+          policyName: rateLimit.policyName,
+        },
+        { status: 429 }
+      );
     }
 
     const admin = createAdminClient();
@@ -133,17 +166,36 @@ export async function POST(
       return NextResponse.json({ error: "Meeting not found." }, { status: 404 });
     }
 
+    exportLog = await startMeetingExport({
+      meetingId,
+      userId: user.id,
+      exportType: "pdf",
+      destination: "browser download",
+      metadata: {
+        generated_from: "meeting_review",
+      },
+    });
+    await recordSecurityAudit({
+      type: "export_requested",
+      policyName: "pdf_export",
+    });
+
     const pdfBytes = await buildPdf(
       meeting as WebMeetingRecord,
       (findings as MeetingFindingsRecord | null) ?? null,
       (artifacts as MeetingArtifactRecord[] | null) ?? []
     );
 
-    await admin.from("meeting_exports").insert({
-      meeting_id: meetingId,
-      user_id: user.id,
-      export_type: "pdf",
-      status: "downloaded",
+    await completeMeetingExport({
+      exportId: exportLog.exportId,
+      userId: user.id,
+      status: "completed",
+      destination: "browser download",
+      startedAt: exportLog.startedAt,
+      metadata: {
+        generated_from: "meeting_review",
+        byte_size: pdfBytes.length,
+      },
     });
 
     return new NextResponse(Buffer.from(pdfBytes), {
@@ -158,6 +210,20 @@ export async function POST(
       },
     });
   } catch (error) {
+    if (exportLog && userId) {
+      await failMeetingExport({
+        exportId: exportLog.exportId,
+        userId,
+        startedAt: exportLog.startedAt,
+        error: error instanceof Error ? error.message : "Unable to generate the PDF export.",
+        metadata: {
+          generated_from: "meeting_review",
+        },
+      }).catch((logError) => {
+        console.error("[workspace] Failed to record PDF export failure", logError);
+      });
+    }
+
     return internalServerErrorResponse(
       "Unable to generate the PDF export.",
       error,

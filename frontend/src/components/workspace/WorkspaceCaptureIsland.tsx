@@ -50,7 +50,8 @@ export type MeetingTargetRef = {
 };
 
 type ActiveMeetingRef = { id: string; title: string };
-type RetryableFinalizePayload = { meeting: ActiveMeetingRef; blob: Blob };
+type CaptureMeetingRef = ActiveMeetingRef & { captureSessionId: string };
+type RetryableFinalizePayload = { meeting: CaptureMeetingRef };
 type PersistedCaptureSession = {
   version: 1;
   captureState: WorkspaceCaptureState;
@@ -59,7 +60,7 @@ type PersistedCaptureSession = {
   micLive: boolean;
   error: string | null;
   notice: string | null;
-  activeMeeting: ActiveMeetingRef | null;
+  activeMeeting: CaptureMeetingRef | null;
   pendingMeeting: MeetingTargetRef | null;
 };
 
@@ -84,7 +85,7 @@ type WorkspaceCaptureControllerValue = {
   micLive: boolean;
   error: string | null;
   notice: string | null;
-  activeMeeting: ActiveMeetingRef | null;
+  activeMeeting: CaptureMeetingRef | null;
   pendingMeeting: MeetingTargetRef | null;
   busyAction: "google" | "notion" | null;
   currentTitle: string | null;
@@ -169,7 +170,7 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
   const [micLive, setMicLive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [activeMeeting, setActiveMeeting] = useState<ActiveMeetingRef | null>(null);
+  const [activeMeeting, setActiveMeeting] = useState<CaptureMeetingRef | null>(null);
   const [pendingMeeting, setPendingMeeting] = useState<MeetingTargetRef | null>(null);
   const [busyAction, setBusyAction] = useState<"google" | "notion" | null>(null);
 
@@ -186,6 +187,8 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const retryableFinalizeRef = useRef<RetryableFinalizePayload | null>(null);
+  const uploadChainRef = useRef<Promise<void>>(Promise.resolve());
+  const nextChunkIndexRef = useRef(0);
   const restoredSessionRef = useRef(false);
   const captureStateRef = useRef<WorkspaceCaptureState>("idle");
 
@@ -255,6 +258,27 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
     return () => window.clearInterval(interval);
   }, [captureState]);
 
+  useEffect(() => {
+    if (
+      !activeMeeting?.captureSessionId ||
+      (captureState !== "recording" && captureState !== "paused")
+    ) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void fetch(resolvePublicApiUrl(`/api/workspace/meetings/${activeMeeting.id}/capture/heartbeat`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          captureSessionId: activeMeeting.captureSessionId,
+        }),
+      }).catch(() => undefined);
+    }, 15000);
+
+    return () => window.clearInterval(interval);
+  }, [activeMeeting?.captureSessionId, activeMeeting?.id, captureState]);
+
   useEffect(() => () => void releaseMedia(), []);
 
   async function refreshContext() {
@@ -283,6 +307,8 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
     mergedStreamRef.current = null;
     mediaRecorderRef.current = null;
     recordedChunksRef.current = [];
+    uploadChainRef.current = Promise.resolve();
+    nextChunkIndexRef.current = 0;
     audioAnalyserRef.current = null;
     peakAudioLevelRef.current = 0;
     displayAudioPresentRef.current = false;
@@ -392,18 +418,17 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
     }
   }
 
-  async function uploadFinalizeBlob(meeting: ActiveMeetingRef, audioBlob: Blob) {
-    console.info("[workspace-capture] Preparing upload target", {
-      meetingId: meeting.id,
-      byteSize: audioBlob.size,
-    });
+  async function uploadChunk(meeting: CaptureMeetingRef, chunkIndex: number, audioBlob: Blob) {
     const uploadResponse = await fetch(
-      resolvePublicApiUrl(`/api/workspace/meetings/${meeting.id}/upload-url`),
+      resolvePublicApiUrl(`/api/workspace/meetings/${meeting.id}/capture/chunks`),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          filename: "meeting-capture.webm",
+          captureSessionId: meeting.captureSessionId,
+          chunkIndex,
+          filename: `capture-${chunkIndex}.webm`,
+          mimeType: audioBlob.type || "audio/webm",
         }),
       }
     );
@@ -412,6 +437,8 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
       bucket?: string;
       path?: string;
       token?: string;
+      captureSessionId?: string;
+      chunkIndex?: number;
     };
 
     if (
@@ -420,11 +447,11 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
       !uploadPayload.path ||
       !uploadPayload.token
     ) {
-      throw new Error(uploadPayload.error ?? "Unable to prepare the meeting upload.");
+      throw new Error(uploadPayload.error ?? "Unable to prepare the capture chunk upload.");
     }
 
     const supabase = createSupabaseBrowserClient();
-    const file = new File([audioBlob], "meeting-capture.webm", {
+    const file = new File([audioBlob], `capture-${chunkIndex}.webm`, {
       type: audioBlob.type || "audio/webm",
     });
     const { error: uploadError } = await supabase.storage
@@ -438,28 +465,51 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
       throw new Error(uploadError.message);
     }
 
-    console.info("[workspace-capture] Upload complete, queueing AI processing", {
-      meetingId: meeting.id,
-      bucket: uploadPayload.bucket,
-      path: uploadPayload.path,
-    });
-
-    const response = await fetch(
-      resolvePublicApiUrl(`/api/workspace/meetings/${meeting.id}/process`),
+    const completeResponse = await fetch(
+      resolvePublicApiUrl(
+        `/api/workspace/meetings/${meeting.id}/capture/chunks/${chunkIndex}/complete`
+      ),
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          bucket: uploadPayload.bucket,
-          path: uploadPayload.path,
-          mimeType: file.type || "audio/webm",
+          captureSessionId: meeting.captureSessionId,
           byteSize: file.size,
         }),
       }
     );
+    const completePayload = (await completeResponse.json().catch(() => null)) as {
+      error?: string;
+    } | null;
+
+    if (!completeResponse.ok) {
+      throw new Error(completePayload?.error ?? "Unable to finalize the capture chunk upload.");
+    }
+  }
+
+  function enqueueChunkUpload(meeting: CaptureMeetingRef, audioBlob: Blob) {
+    if (audioBlob.size <= 0) {
+      return;
+    }
+
+    const chunkIndex = nextChunkIndexRef.current++;
+    uploadChainRef.current = uploadChainRef.current.then(() =>
+      uploadChunk(meeting, chunkIndex, audioBlob)
+    );
+  }
+
+  async function finalizeCaptureSession(meeting: CaptureMeetingRef) {
+    const response = await fetch(resolvePublicApiUrl(`/api/workspace/meetings/${meeting.id}/finalize`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        captureSessionId: meeting.captureSessionId,
+      }),
+    });
     const payload = (await response.json()) as { error?: string };
+
     if (!response.ok) {
-      throw new Error(payload.error ?? "Unable to queue the meeting for transcription.");
+      throw new Error(payload.error ?? "Unable to hand off the meeting to backend processing.");
     }
   }
 
@@ -512,8 +562,9 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
         error?: string;
         meetingId?: string;
         title?: string;
+        captureSessionId?: string;
       };
-      if (!response.ok || !payload.meetingId) {
+      if (!response.ok || !payload.meetingId || !payload.captureSessionId) {
         throw new Error(payload.error ?? "Unable to start the browser capture session.");
       }
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -524,11 +575,24 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
       });
       recordedChunksRef.current = [];
       recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) recordedChunksRef.current.push(event.data);
+        if (event.data.size > 0) {
+          enqueueChunkUpload(
+            {
+              id: payload.meetingId!,
+              title: payload.title ?? title,
+              captureSessionId: payload.captureSessionId!,
+            },
+            event.data
+          );
+        }
       };
       recorder.start(1000);
       mediaRecorderRef.current = recorder;
-      setActiveMeeting({ id: payload.meetingId, title: payload.title ?? title });
+      setActiveMeeting({
+        id: payload.meetingId,
+        title: payload.title ?? title,
+        captureSessionId: payload.captureSessionId,
+      });
       setPendingMeeting(null);
       setElapsedSeconds(0);
       setCaptureState("recording");
@@ -570,14 +634,9 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
     setError(null);
     setNotice(null);
     try {
-      const audioBlob = await new Promise<Blob>((resolve, reject) => {
+      await new Promise<void>((resolve, reject) => {
         recorder.onerror = () => reject(new Error("Unable to finish the recording session."));
-        recorder.onstop = () =>
-          resolve(
-            new Blob(recordedChunksRef.current, {
-              type: recorder.mimeType || "audio/webm",
-            })
-          );
+        recorder.onstop = () => resolve();
         recorder.stop();
       });
       const silentCaptureError = getSilentCaptureError({
@@ -587,22 +646,17 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
       if (silentCaptureError) {
         throw new Error(silentCaptureError);
       }
-      await uploadFinalizeBlob(activeMeeting, audioBlob);
+      await uploadChainRef.current;
+      await finalizeCaptureSession(activeMeeting);
       await resetToIdle(
-        `Transcription started for "${activeMeeting.title}". Review the Library for live status and findings.`
+        `Backend processing started for "${activeMeeting.title}". Once queued, the meeting continues even if this browser closes.`
       );
     } catch (caughtError) {
       const shouldPreserveForRetry =
         !(caughtError instanceof Error) ||
         !/No spoken audio was detected/i.test(caughtError.message);
-      const audioBlob =
-        recordedChunksRef.current.length > 0
-          ? new Blob(recordedChunksRef.current, {
-              type: mediaRecorderRef.current?.mimeType || "audio/webm",
-            })
-          : null;
-      if (shouldPreserveForRetry && audioBlob && audioBlob.size > 0) {
-        retryableFinalizeRef.current = { meeting: activeMeeting, blob: audioBlob };
+      if (shouldPreserveForRetry) {
+        retryableFinalizeRef.current = { meeting: activeMeeting };
       } else {
         retryableFinalizeRef.current = null;
       }
@@ -615,8 +669,8 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
       );
       setNotice(
         retryableFinalizeRef.current
-          ? "We kept the recorded audio in this browser tab. Retry finalize or discard this local session."
-          : "The session ended, but transcription handoff did not complete. Check Library, then start a new capture if needed."
+          ? "The backend finalization did not complete. Retry finalize to hand the meeting off without restarting capture."
+          : "The session ended, but backend finalization did not complete. Check Library, then start a new capture if needed."
       );
       router.refresh();
     }
@@ -629,11 +683,11 @@ export function WorkspaceCaptureProvider({ children }: { children: ReactNode }) 
     }
     setCaptureState("processing");
     setError(null);
-    setNotice("Retrying the transcription handoff for the captured audio...");
+    setNotice("Retrying the backend finalization for the captured meeting...");
     try {
       const retryPayload = retryableFinalizeRef.current;
-      await uploadFinalizeBlob(retryPayload.meeting, retryPayload.blob);
-      await resetToIdle(`Transcription restarted for "${retryPayload.meeting.title}".`);
+      await finalizeCaptureSession(retryPayload.meeting);
+      await resetToIdle(`Backend processing restarted for "${retryPayload.meeting.title}".`);
     } catch (caughtError) {
       setCaptureState("failed");
       setError(

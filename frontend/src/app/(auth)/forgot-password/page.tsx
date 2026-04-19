@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { BrandLogo } from "@/components/BrandLogo";
+import { getBrowserAuthOrigin } from "@/lib/auth-origin";
 import { createClient } from "@/lib/supabase-browser";
 
 export default function ForgotPasswordPage() {
@@ -22,8 +23,10 @@ export default function ForgotPasswordPage() {
     setLoading(true);
     setError(null);
 
+    const authOrigin = getBrowserAuthOrigin();
+
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+      redirectTo: `${authOrigin}/auth/callback?next=/dashboard`,
     });
 
     if (error) {

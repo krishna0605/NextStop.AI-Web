@@ -38,8 +38,20 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+!.env.local.stack.example
 !frontend/.env.vercel.example
 !backend/.env.railway.example
+!backend/.env.local.example
+!frontend/.env.local.example
+
+# local-only stack files
+backend/.env.local
+frontend/.env.local
+.env.local.stack
+docker-compose.override.yml
+docker-compose.dev.override.yml
+docker-logs/
+*.local.log
 
 # vercel
 **/.vercel

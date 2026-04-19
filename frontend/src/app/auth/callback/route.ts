@@ -1,4 +1,5 @@
 import { sanitizeNextPath } from "@/lib/billing";
+import { normalizeAuthOrigin } from "@/lib/auth-origin";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient } from "@/lib/supabase-server";
 import { NextResponse } from "next/server";
@@ -112,13 +113,14 @@ async function syncIntegrationFromCallback(
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
+  const authOrigin = normalizeAuthOrigin(origin);
   const code = searchParams.get("code");
   const next = sanitizeNextPath(searchParams.get("next"), "/app-entry");
   const intent = searchParams.get("intent");
   const providerError = searchParams.get("error");
 
   if (providerError) {
-    return NextResponse.redirect(buildProviderErrorRedirect(origin, intent, next, searchParams));
+    return NextResponse.redirect(buildProviderErrorRedirect(authOrigin, intent, next, searchParams));
   }
 
   if (code) {
@@ -151,15 +153,15 @@ export async function GET(request: Request) {
             : next;
 
       if (isLocalEnv) {
-        return NextResponse.redirect(`${origin}${redirectTarget}`);
+        return NextResponse.redirect(`${authOrigin}${redirectTarget}`);
       } else if (forwardedHost) {
         return NextResponse.redirect(`https://${forwardedHost}${redirectTarget}`);
       } else {
-        return NextResponse.redirect(`${origin}${redirectTarget}`);
+        return NextResponse.redirect(`${authOrigin}${redirectTarget}`);
       }
     }
   }
 
   // If no code or error, redirect to login with error message
-  return NextResponse.redirect(`${origin}/login?error=auth_callback_error`);
+  return NextResponse.redirect(`${authOrigin}/login?error=auth_callback_error`);
 }

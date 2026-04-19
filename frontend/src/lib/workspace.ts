@@ -7,6 +7,7 @@ export type MeetingStatus =
   | "scheduled"
   | "draft"
   | "capturing"
+  | "finalizing_upload"
   | "queued"
   | "transcribing"
   | "transcript_ready"
@@ -15,6 +16,7 @@ export type MeetingStatus =
   | "partial_success"
   | "ready"
   | "failed"
+  | "cancel_requested"
   | "canceled";
 
 export type IntegrationStatus =
@@ -25,20 +27,47 @@ export type IntegrationStatus =
   | "reconnect_required"
   | "error";
 
-export type TranscriptAvailabilityStatus = "available" | "expired" | "disabled" | "local_only";
+export type TranscriptAvailabilityStatus =
+  | "available"
+  | "not_ready"
+  | "expired"
+  | "deleted"
+  | "disabled"
+  | "local_only";
 export type AiPipelineMode = "railway_remote" | "inline_legacy";
+export type FindingsGenerationMode = "openai_primary" | "fallback_local";
+export type FindingsGenerationStatus = "full_success" | "degraded_success" | "failed";
 export type AiJobType = "transcribe" | "analyze" | "finalize" | "regenerate_artifact";
-export type AiJobStatus = "queued" | "running" | "partial_success" | "ready" | "failed";
+export type AiJobStatus =
+  | "queued"
+  | "running"
+  | "partial_success"
+  | "ready"
+  | "cancel_requested"
+  | "canceled"
+  | "failed";
 export type AiJobStage =
   | "queued"
   | "uploaded"
+  | "materializing_audio"
   | "transcribing"
   | "normalizing"
   | "diarizing"
   | "extracting"
   | "assembling"
   | "regenerating"
+  | "canceled"
   | "completed";
+export type CaptureSessionStatus =
+  | "preparing"
+  | "recording"
+  | "ending"
+  | "sealed"
+  | "materializing_audio"
+  | "queued_for_transcription"
+  | "cancel_requested"
+  | "canceled"
+  | "failed";
 export type MeetingAssetKind = "audio_raw" | "transcript_text";
 export type MeetingArtifactType =
   | "canonical_json"
@@ -52,6 +81,7 @@ export type AiPhase =
   | "transcript_ready"
   | "analyzing"
   | "ready"
+  | "canceled"
   | "failed";
 
 export type NotionDestinationType = "page" | "database";
@@ -87,8 +117,11 @@ export interface WebMeetingRecord {
   notion_destination_id?: string | null;
   tags?: string[] | null;
   session_metadata?: Record<string, unknown> | null;
+  cancel_requested_at?: string | null;
+  canceled_at?: string | null;
   started_at?: string | null;
   ended_at?: string | null;
+  current_capture_session_id?: string | null;
   origin_platform?: string | null;
   origin_device_id?: string | null;
   external_local_id?: string | null;
@@ -111,6 +144,9 @@ export interface MeetingFindingsRecord {
   follow_ups_json?: string[] | null;
   email_draft?: string | null;
   source_model?: string | null;
+  generation_mode?: FindingsGenerationMode | null;
+  generation_status?: FindingsGenerationStatus | null;
+  fallback_reason?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -122,6 +158,9 @@ export interface MeetingExportRecord {
   export_type: "pdf" | "notion" | "copy" | "email_draft" | "transcript";
   status: string;
   destination?: string | null;
+  latest_error?: string | null;
+  completed_at?: string | null;
+  duration_ms?: number | null;
   metadata?: Record<string, unknown> | null;
   created_at?: string | null;
 }
@@ -137,6 +176,10 @@ export interface AiJobRecord {
   attempts?: number | null;
   provider_metadata?: Record<string, unknown> | null;
   error?: string | null;
+  cancel_requested_at?: string | null;
+  canceled_at?: string | null;
+  cancel_reason?: string | null;
+  cancel_requested_by?: string | null;
   started_at?: string | null;
   finished_at?: string | null;
   created_at?: string | null;
@@ -155,6 +198,9 @@ export interface MeetingAssetRecord {
   checksum?: string | null;
   status: string;
   expires_at?: string | null;
+  deleted_at?: string | null;
+  deletion_status?: string | null;
+  deletion_error?: string | null;
   created_by_job_id?: string | null;
   metadata?: Record<string, unknown> | null;
   created_at?: string | null;
@@ -190,9 +236,35 @@ export interface SpeakerSegmentRecord {
   created_at?: string | null;
 }
 
+export interface MeetingCaptureSessionRecord {
+  id: string;
+  meeting_id: string;
+  user_id: string;
+  status: CaptureSessionStatus;
+  capture_mode: string;
+  source_surface?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
+  sealed_at?: string | null;
+  cancel_requested_at?: string | null;
+  canceled_at?: string | null;
+  last_client_heartbeat_at?: string | null;
+  last_chunk_received_at?: string | null;
+  total_chunks_received?: number | null;
+  total_bytes_received?: number | null;
+  final_asset_bucket?: string | null;
+  final_asset_path?: string | null;
+  final_asset_status?: string | null;
+  error?: string | null;
+  metadata?: Record<string, unknown> | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface AiStatusSnapshot {
   meetingId: string;
   meetingStatus: MeetingStatus;
+  captureStatus?: CaptureSessionStatus | null;
   latestJob: AiJobRecord | null;
   artifacts: MeetingArtifactRecord[];
   transcriptAsset: MeetingAssetRecord | null;
@@ -202,7 +274,14 @@ export interface AiStatusSnapshot {
   findingsReadyAt?: string | null;
   timings?: Record<string, unknown> | null;
   latestError: string | null;
+  retryCount?: number | null;
+  findingsGenerationMode?: FindingsGenerationMode | null;
+  findingsGenerationStatus?: FindingsGenerationStatus | null;
+  findingsFallbackReason?: string | null;
+  surfaceState: "processing" | "ready" | "degraded" | "needs_retry";
   pending: boolean;
+  cancelable?: boolean;
+  temporaryTranscriptReady?: boolean;
 }
 
 export interface TranscriptAvailability {
@@ -256,11 +335,19 @@ export interface LibraryMeetingCard {
   scheduledStart: string | null;
   summaryShort: string | null;
   latestAiStage: string | null;
+  latestAiJobStatus?: AiJobStatus | null;
   latestError: string | null;
   phase: AiPhase;
+  captureStatus?: CaptureSessionStatus | null;
+  cancelable?: boolean;
+  temporaryTranscriptReady?: boolean;
   exportCount: number;
   artifactCount: number;
   transcriptExpiresAt: string | null;
+  findingsGenerationMode: FindingsGenerationMode | null;
+  findingsGenerationStatus: FindingsGenerationStatus | null;
+  findingsFallbackReason: string | null;
+  reviewState: "processing" | "ready" | "degraded" | "needs_retry";
   meetUrl: string | null;
   eventUrl: string | null;
 }
@@ -271,6 +358,148 @@ export interface LibraryPageData {
   limit: number;
   nextCursor: string | null;
   providerStatus: WorkspaceProviderStatus;
+}
+
+export interface ReadinessCheckRecord {
+  name: string;
+  status: "pass" | "warn" | "fail";
+  detail: string;
+}
+
+export interface RuntimeIssueRecord {
+  name: string;
+  detail: string;
+}
+
+export interface OpsRecentAiFailure {
+  id: string;
+  meetingId: string;
+  jobType: AiJobType;
+  stage: AiJobStage;
+  status: AiJobStatus;
+  error: string;
+  executionMode: string | null;
+  findingsGenerationStatus?: FindingsGenerationStatus | null;
+  createdAt: string | null;
+}
+
+export interface OpsRecentDegradedMeeting {
+  meetingId: string;
+  title: string;
+  generationMode: FindingsGenerationMode;
+  generationStatus: FindingsGenerationStatus;
+  fallbackReason: string | null;
+  updatedAt: string | null;
+}
+
+export interface CleanupStatusSnapshot {
+  lastCleanupRunAt: string | null;
+  lastCleanupSuccessAt: string | null;
+  lastCleanupError: string | null;
+  deletedAudioAssetCount: number;
+  deletedTranscriptAssetCount: number;
+  pendingExpiredAssetCount: number;
+}
+
+export interface SecurityControlsSnapshot {
+  lastEventAt: string | null;
+  lastRateLimitDeniedAt: string | null;
+  lastTranscriptDownloadGrantedAt: string | null;
+  lastTranscriptDownloadBlockedAt: string | null;
+  lastExportRequestedAt: string | null;
+  rateLimitDeniedCount: number;
+  transcriptDownloadGrantedCount: number;
+  transcriptDownloadBlockedCount: number;
+  exportRequestedCount: number;
+  denialByPolicy: Record<string, number>;
+  transcriptBlocksByReason: Record<string, number>;
+  exportRequestsByPolicy: Record<string, number>;
+}
+
+export type HostedVerificationStatus = "unknown" | "pass" | "fail" | "blocked" | "partial";
+
+export interface HostedVerificationScenarioSnapshot {
+  status: HostedVerificationStatus;
+  detail: string | null;
+  checkedAt: string | null;
+}
+
+export interface HostedVerificationSnapshot {
+  lastHostedVerificationAt: string | null;
+  lastHostedVerificationStatus: HostedVerificationStatus;
+  lastHostedVerificationScenario: string | null;
+  lastHostedVerificationFailureReason: string | null;
+  source: string | null;
+  scenarios: Record<string, HostedVerificationScenarioSnapshot>;
+}
+
+export type LaunchCertificationStatus = "pending" | "certified" | "blocked";
+
+export interface LaunchCertificationSnapshot {
+  lastLaunchCertificationAt: string | null;
+  lastLaunchCertificationStatus: LaunchCertificationStatus;
+  certifiedBy: string | null;
+  certificationNotes: string | null;
+  validationGreen: boolean;
+  hostedVerificationPassed: boolean;
+  operationalProofComplete: boolean;
+  readinessLaunchDecision: "ready" | "degraded" | "blocked" | null;
+}
+
+export interface OpsCaptureSessionSummary {
+  captureSessionId: string;
+  meetingId: string;
+  meetingTitle: string | null;
+  status: CaptureSessionStatus;
+  lastHeartbeatAt: string | null;
+  lastChunkReceivedAt: string | null;
+  totalChunksReceived: number;
+  totalBytesReceived: number;
+  error: string | null;
+}
+
+export interface CaptureRuntimeSnapshot {
+  activeCaptureSessionCount: number;
+  staleCaptureSessionCount: number;
+  finalizationBacklogCount: number;
+  transcriptReadyAwaitingAnalysisCount: number;
+  cancelRequestedJobCount: number;
+  sessions: OpsCaptureSessionSummary[];
+}
+
+export interface OpsRecentExportFailure {
+  id: string;
+  meetingId: string;
+  exportType: MeetingExportRecord["export_type"];
+  status: string;
+  destination: string | null;
+  latestError: string | null;
+  durationMs: number | null;
+  createdAt: string | null;
+}
+
+export interface OpsReadinessData {
+  checks: ReadinessCheckRecord[];
+  blockingFailures: RuntimeIssueRecord[];
+  warnings: RuntimeIssueRecord[];
+  launchDecision: "ready" | "degraded" | "blocked";
+  aiCoreHealth: Record<string, unknown> | null;
+  recentAiFailures: OpsRecentAiFailure[];
+  recentDegradedMeetings: OpsRecentDegradedMeeting[];
+  recentExportFailures: OpsRecentExportFailure[];
+  appUrl: string;
+  backendApiUrl: string | null;
+  aiCoreApiUrl: string | null;
+  workerReady: boolean;
+  queueName: string | null;
+  lastWorkerHeartbeatAt: string | null;
+  workerVersion: string | null;
+  cleanup: CleanupStatusSnapshot | null;
+  security: SecurityControlsSnapshot | null;
+  hostedVerification: HostedVerificationSnapshot | null;
+  launchCertification: LaunchCertificationSnapshot | null;
+  captureRuntime: CaptureRuntimeSnapshot;
+  lastDeployHint: string;
 }
 
 export const MEETING_SOURCE_LABELS: Record<MeetingSourceType, string> = {
@@ -298,9 +527,14 @@ export const MEETING_STATUS_COPY: Record<
     description: "The browser session is currently live.",
     tone: "trust",
   },
+  finalizing_upload: {
+    label: "Finalizing",
+    description: "The capture is being secured for backend-owned processing.",
+    tone: "warm",
+  },
   queued: {
     label: "Queued",
-    description: "Audio upload is complete and the transcription worker is queued.",
+    description: "Backend ownership is complete and the transcription worker is queued.",
     tone: "warm",
   },
   transcribing: {
@@ -338,9 +572,14 @@ export const MEETING_STATUS_COPY: Record<
     description: "The meeting ended, but findings were not generated.",
     tone: "danger",
   },
+  cancel_requested: {
+    label: "Canceling",
+    description: "Processing will stop at the next safe checkpoint.",
+    tone: "warm",
+  },
   canceled: {
     label: "Canceled",
-    description: "This meeting was canceled before capture completed.",
+    description: "This meeting was canceled by the user.",
     tone: "neutral",
   },
 };

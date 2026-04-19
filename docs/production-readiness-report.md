@@ -1,961 +1,873 @@
-﻿# NextStop Web Production Readiness Report
+# NextStop Post-Production Readiness Report
 
-**Date**: March 21, 2026  
-**Project**: NextStop Web Workspace  
-**Deployment Target**: Vercel + Supabase + Railway-ready architecture  
-**Assessment Scope**: Web product shell, integrations, capture/runtime, auth/billing, exports, operational readiness  
-**Explicitly Excluded From This Report**: AI quality improvements, transcription model improvements, prompting/model upgrades
+**Date**: April 1, 2026  
+**Repository**: `nextstop.ai-web`  
+**Scope**: `Live Production`, `Next Release Ready Locally`, and `Future Recommendation`  
+**Audience**: Founder, operator, and engineering stakeholders  
+**Assessment method**: repo review, workflow review, docs review, code-path inspection, and locally validated checks
 
----
+## Evidence Legend
 
-## Executive Summary
-
-NextStop Web is now a **browser-first meeting capture application** with a real production deployment path, hardened Google and Notion integration flows, billing-aware access control, a global capture dock, a unified findings Library, and a safer transcript lifecycle contract than the original in-memory-only prototype.
-
-The application is **conditionally ready for production tonight** provided the final operator-side configuration checks are completed:
-
-- production env variables are set in Vercel
-- Google and Notion OAuth redirect URIs are verified
-- transcript mode is explicitly chosen for production
-- a final smoke test is run against the deployed app
-
-### Overall Production Readiness Score: **90/100**
-
-### Readiness Recommendation: **Go for production with final operator validation and CI evidence**
-
-| Category | Score | Status | Severity |
-|---|---:|---|---|
-| Security | 80/100 | Good | High |
-| Authentication & Authorization | 86/100 | Strong | High |
-| Billing & Access Gating | 84/100 | Strong | High |
-| Google Integration | 82/100 | Good | High |
-| Notion Integration | 79/100 | Good | High |
-| Capture Reliability | 74/100 | Acceptable | High |
-| Transcript Lifecycle Safety | 78/100 | Good | High |
-| Library / Review / Export UX | 83/100 | Strong | Medium |
-| Logging & Operational Visibility | 70/100 | Basic-to-Good | Medium |
-| Deployment & Configuration | 88/100 | Strong | High |
-| Testing & Verification | 89/100 | Strong | Medium |
-| Documentation & Launch Operations | 87/100 | Strong | Medium |
-
-### Weighted Interpretation
-
-- The app is **not a prototype anymore**
-- The biggest remaining risks are **operational**, not architectural:
-  - provider dashboard misconfiguration
-  - real OAuth token expiry paths in production
-  - browser capture edge cases under real users
-  - light automated test coverage compared with the product surface
+- `Live Production`: confirmed through the current deployment model, operator statements, and production-facing flows already in use
+- `Repo-Confirmed`: confirmed from code, routes, workflows, migrations, or docs in this workspace
+- `Locally Validated`: confirmed through local commands already run in this workspace
+- `Requires Production Verification`: plausible and prepared, but still needs a live deployed check after release
 
 ---
 
-## 1. Product and Architecture Overview
+## 1. Executive Summary
 
-### 1.1 Product Shape
+### Readiness Scores
 
-NextStop Web currently ships these production-facing capabilities:
+| Scope | Score | Verdict |
+|---|---:|---|
+| `Live Production` | 3.5 / 5 | Stable for controlled production, but still needs operational hardening |
+| `Next Release Ready Locally` | 4.1 / 5 | Strong candidate for release after push and post-deploy verification |
 
-- authenticated dashboard with billing-aware access
-- Google Calendar connection and Google Meet creation
-- Notion workspace connection and destination routing
-- global floating capture controller on dashboard pages
-- browser-tab capture flow
-- unified Library for scheduled and captured meetings
-- review page with findings, PDF export, transcript access policy, and Notion export
+### Current-State Summary
 
-### 1.2 Runtime Architecture
+NextStop is no longer a prototype. The product now has a clear two-runtime deployment model, a working browser-capture path, a direct Railway AI worker, a lighter dashboard and library loading model, structured review and export surfaces, and a new internal operations page. The repo shows a meaningful transition from “all logic in Next.js” toward “Vercel for app rendering, Railway for heavy AI execution,” with Supabase as the durable system of record and Redis/BullMQ handling queue transport. The biggest risks are now less about whether the core product exists and more about whether operations, ownership boundaries, and recovery tooling are mature enough for broader production.
 
-```mermaid
-flowchart TD
-  A["Browser Client"] --> B["Next.js App (Vercel)"]
-  B --> C["Supabase Auth"]
-  B --> D["Supabase Postgres"]
-  B --> E["Supabase OAuth-backed identity/session"]
-  B --> F["Google Calendar API"]
-  B --> G["Notion OAuth/API"]
-  B --> H["Razorpay"]
-  B --> I["AI/ASR pipeline (existing, excluded from scoring scope)"]
+### Release Recommendation
 
-  D --> D1["profiles"]
-  D --> D2["subscriptions"]
-  D --> D3["integrations_google"]
-  D --> D4["integrations_notion"]
-  D --> D5["web_meetings"]
-  D --> D6["meeting_findings"]
-  D --> D7["meeting_exports"]
-```
+`Next Release Ready Locally` should be pushed. The local evidence is strong: frontend typecheck, lint, coverage run, production build, and backend typecheck all passed in this workspace. The new readiness improvements also close real launch gaps: export telemetry is now persisted, automated post-deploy verification is wired into GitHub Actions, runtime ownership has been documented, and the `/dashboard/ops` surface makes health and recent failures visible. After release, the main focus should shift to operational confidence: worker alerts, incident runbooks, route-ownership cleanup, and richer failure recovery for exports and AI retries.
 
-### 1.3 App Surface Map
+### Top 5 Immediate Risks
+
+1. Runtime ownership is improved but still split: important authenticated business logic remains inside `frontend/src/app/api/**`.
+2. The AI worker path is healthier, but end-to-end failure remediation is still mostly read-only rather than operator-actionable.
+3. Post-deploy verification exists, but it still depends on correct environment configuration and successful deployment propagation timing.
+4. Exports are now logged better, but export retry tooling and a centralized export center are not complete yet.
+5. Production monitoring is visible in-app, but alerting and incident automation are still immature.
+
+### Top 5 Highest-Leverage Improvements
+
+1. Push the current local release so `/dashboard/ops`, post-deploy verification, and export telemetry reach production.
+2. Add alerting for stale worker heartbeat, queue backlog, readiness failures, and repeated failed jobs.
+3. Finish the runtime-boundary cleanup by migrating more heavy/authenticated backend logic out of Next.js API routes.
+4. Add operator retry tools for failed AI jobs and failed exports.
+5. Add a first-run onboarding checklist for Google, Notion, capture validation, and first export success.
+
+### Final Verdict
+
+`Live Production`: stable enough for controlled production, but still needs operational hardening.  
+`Next Release Ready Locally`: ready to ship after normal CI and post-deploy verification.
+
+**Current status**: Healthy core product with moderate operational debt  
+**Risk level**: Medium  
+**Recommendation summary**: Push the locally prepared release, verify production automatically, then prioritize ops hardening and runtime cleanup
+
+---
+
+## 2. System Architecture Overview
+
+### System Summary
+
+Today’s system is a hybrid production architecture:
+
+- Browser users access the product through the Vercel-hosted Next.js app
+- Supabase provides auth, relational data, and private storage
+- Railway hosts the backend service and direct AI worker
+- Redis on Railway backs BullMQ job execution
+- Deepgram handles transcription
+- OpenAI handles downstream findings generation
+- Google and Notion power external productivity integrations
+- Razorpay handles billing and subscription workflows
+
+### System Context Diagram
 
 ```mermaid
 flowchart LR
-  A["Dashboard"] --> B["Workspace Capture Dock"]
-  A --> C["Library"]
-  A --> D["Google"]
-  A --> E["Notion"]
-  A --> F["Settings"]
-  C --> G["Review"]
-  D --> B
-  E --> G
-  B --> G
+    U["User Browser"] --> V["Vercel Next.js App"]
+    V --> S["Supabase Auth / DB / Storage"]
+    V --> G["Google APIs"]
+    V --> N["Notion APIs"]
+    V --> P["Razorpay"]
+    V --> R["Railway Backend / AI Core"]
+    R --> Q["Redis / BullMQ"]
+    R --> S
+    R --> D["Deepgram"]
+    R --> O["OpenAI"]
 ```
 
-### 1.4 UI Surface Sketch
+### Runtime Boundary Diagram
+
+```mermaid
+flowchart TB
+    subgraph Frontend["Vercel / Next.js"]
+      A["Dashboard / Library / Review UI"]
+      B["Next.js API routes still in frontend"]
+      C["Readiness aggregation"]
+    end
+
+    subgraph Backend["Railway"]
+      D["/health"]
+      E["Worker direct execution"]
+      F["Queue endpoints"]
+    end
+
+    subgraph Data["State + Storage"]
+      G["Supabase"]
+      H["Redis"]
+    end
+
+    A --> B
+    B --> D
+    B --> G
+    F --> H
+    E --> H
+    E --> G
+```
+
+### What Still Runs on Vercel
+
+- App Router UI rendering under `frontend/src/app/(dashboard)/**`
+- authenticated page composition and server loaders
+- remaining authenticated Next.js API routes under `frontend/src/app/api/**`
+- readiness aggregation under [route.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/app/api/health/readiness/route.ts)
+- lightweight export orchestration and transcript download handlers
+
+### What Now Runs on Railway
+
+- backend `/health` endpoint under [server.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/backend/src/server.ts)
+- direct BullMQ worker execution under [worker.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/backend/src/worker.ts)
+- queue-backed AI execution using Redis/BullMQ
+- heavy transcription and analysis execution against Deepgram and OpenAI
+
+### Split-Ownership Assessment
+
+The architecture is coherent enough for current scale, but it is not yet “cleanly separated.” The important distinction is that the AI heavy path now has a single clear execution owner, which is Railway, while some authenticated product routes remain on Vercel for practical reasons. This is acceptable for the current stage, but it should be treated as transitional rather than final.
+
+### Evidence
+
+- `Repo-Confirmed`: [README.md](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/README.md)
+- `Repo-Confirmed`: [runtime-ownership.md](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/docs/runtime-ownership.md)
+- `Repo-Confirmed`: [server.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/backend/src/server.ts)
+- `Repo-Confirmed`: [worker.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/backend/src/worker.ts)
+
+**Current status**: Clearer than before, but still partly transitional  
+**Risk level**: Medium  
+**Recommendation summary**: Keep the current split for now, but continue moving backend-worthy authenticated logic toward Railway
+
+---
+
+## 3. Data Model and Lifecycle
+
+### Core Data Shape
+
+The product is centered on `web_meetings` and its downstream records:
+
+- `profiles` and `subscriptions` define user identity and access
+- `integrations_google` and `integrations_notion` store workspace connection state
+- `web_meetings` represent scheduled or captured sessions
+- `ai_jobs` track transcription, analysis, and regeneration work
+- `meeting_assets` store raw audio and transcript assets
+- `meeting_artifacts` and `meeting_findings` represent durable structured outputs
+- `meeting_exports` records what was delivered, where, how long it took, and whether it failed
+- `meeting_speaker_segments` store structured transcript segmentation
+
+### ER Diagram
+
+```mermaid
+erDiagram
+    PROFILES ||--o{ SUBSCRIPTIONS : has
+    PROFILES ||--o{ INTEGRATIONS_GOOGLE : connects
+    PROFILES ||--o{ INTEGRATIONS_NOTION : connects
+    PROFILES ||--o{ WEB_MEETINGS : owns
+    PROFILES ||--o{ DESKTOP_DEVICES : registers
+
+    WEB_MEETINGS ||--o{ AI_JOBS : creates
+    WEB_MEETINGS ||--o{ MEETING_ASSETS : stores
+    WEB_MEETINGS ||--o{ MEETING_ARTIFACTS : generates
+    WEB_MEETINGS ||--o{ MEETING_FINDINGS : summarizes
+    WEB_MEETINGS ||--o{ MEETING_EXPORTS : exports
+    WEB_MEETINGS ||--o{ MEETING_SPEAKER_SEGMENTS : segments
+```
+
+### Lifecycle Summary
+
+1. A meeting is created through scheduling or browser capture.
+2. Raw audio is uploaded to private storage and registered in `meeting_assets`.
+3. An `ai_jobs` record is created and queued.
+4. Railway transcribes, persists transcript data and segments, then runs analyze.
+5. Findings and artifacts become the durable “product outputs.”
+6. Export actions create `meeting_exports` records for auditing and failure diagnosis.
+
+### Data Lifecycle Notes
+
+- `raw audio` is intentionally short-lived
+- `transcript_text` is temporary and policy-bound
+- `findings` and `artifacts` are the durable long-term outputs
+- `meeting_exports` is now becoming an operational ledger rather than just a history list
+
+### Privacy Implications
+
+The code and docs reflect a “findings-first, transcript-bounded” privacy model. This is directionally strong for production, but it does depend on retention jobs, storage settings, and export behavior staying aligned with what the UI claims. The report should treat privacy promises as only partially complete until live retention behavior is verified after deploy.
+
+### Evidence
+
+- `Repo-Confirmed`: [workspace.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/lib/workspace.ts)
+- `Repo-Confirmed`: [production-runbook.md](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/docs/production-runbook.md)
+- `Repo-Confirmed`: [20260401_export_ops_hardening.sql](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/backend/supabase/migrations/20260401_export_ops_hardening.sql)
+- `Requires Production Verification`: actual transcript and audio cleanup timing in live storage
+
+**Current status**: Strong relational model with improving export and ops telemetry  
+**Risk level**: Medium  
+**Recommendation summary**: Keep the data model, but tighten retention verification and lifecycle documentation
+
+---
+
+## 4. Feature Audit
+
+### Feature Verification Matrix
+
+| Feature | Live status | Local next release | Risk | Notes |
+|---|---|---|---|---|
+| Authentication and access control | `Live Production` | no major behavioral change | Low | Billing-aware access gating is already part of the app flow |
+| Billing and subscription gating | `Live Production` | no major behavioral change | Medium | Strong enough, but billing readiness still depends on Razorpay env and webhook correctness |
+| Dashboard shell | `Live Production` | improved route responsiveness already prepared | Low | Shell-first behavior is materially better in local release |
+| Sidebar capture controls | `Live Production` | already cleaned up locally | Medium | Static left-sidebar placement is better than the old floating model |
+| Browser capture flow | `Live Production` | local resiliency improvements exist | Medium | Capture is working, but browser and device variability remains a real production risk |
+| Library and meeting list | `Live Production` | lighter loader plus skeletons prepared | Medium | Much better perceived performance in local release |
+| Review page | `Live Production` | simplified export-first layout prepared | Low | Direction is good; further simplification can continue |
+| PDF export | `Live Production` | now logged better locally | Medium | Export exists, but async retry and centralized status are still future work |
+| Temporary transcript download | `Live Production` | better logging and bounded messaging locally | Medium | Policy is clearer, but retention must stay aligned with reality |
+| Google integration | `Live Production` | no major local contract change | Medium | Works, but token expiry and reconnect flows always deserve attention |
+| Notion integration | `Live Production` | export telemetry and settings context improved locally | Medium | Still tied to OAuth and destination configuration |
+| AI processing pipeline | `Live Production` | direct Railway execution and richer status already prepared | Medium | Major architecture improvement, but retry tooling is still limited |
+| Readiness and ops visibility | `Ready Locally` | new `/dashboard/ops` page | Low | High-value local improvement ready to ship |
+| Settings and privacy communication | `Live Production` | small improvements already prepared | Medium | Clearer than before, but still not the final privacy and admin experience |
+
+### Feature Group Notes
+
+#### Auth, Access, Billing
+
+These appear production-credible. They are supported by server-side access checks in page loaders and by readiness checks for billing credentials. The main risk is not the product logic itself, but environment drift and webhook correctness.
+
+#### Capture, Library, Review
+
+This is the heart of user value and is now substantially stronger than earlier iterations. The shift away from a floating capture rail and the improved library loader split are meaningful UX wins. The remaining weakness is not feature absence, but resilience and operational visibility under real-world browser and audio conditions.
+
+#### Exports and Integrations
+
+Exports are now becoming first-class operational objects. That is a real maturity step. Google and Notion are functional, but because they depend on external OAuth and destination state, they should still be treated as “works, but requires strong operational monitoring.”
+
+### Evidence
+
+- `Repo-Confirmed`: [DashboardShell.tsx](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/app/(dashboard)/DashboardShell.tsx)
+- `Repo-Confirmed`: [MeetingReview.tsx](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/components/workspace/MeetingReview.tsx)
+- `Repo-Confirmed`: [WorkspaceOps.tsx](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/components/workspace/WorkspaceOps.tsx)
+- `Repo-Confirmed`: [workspace-page.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/lib/workspace-page.ts)
+- `Locally Validated`: typecheck, lint, tests with coverage, frontend build, backend typecheck
+- `Requires Production Verification`: full production Google and Notion reconnect and export behavior after release
+
+**Current status**: Broadly strong feature coverage with a few operational weak spots  
+**Risk level**: Medium  
+**Recommendation summary**: Ship the local ops and export improvements, then concentrate on retries, operator tools, and integration recovery polish
+
+---
+
+## 5. Capture and AI Pipeline Review
+
+### Capture-to-Output DFD
+
+```mermaid
+flowchart LR
+    A["User starts capture"] --> B["Browser records audio"]
+    B --> C["Local validation"]
+    C --> D["Upload audio asset"]
+    D --> E["Create meeting + AI job"]
+    E --> F["Queue transcribe job"]
+    F --> G["Railway worker transcribes"]
+    G --> H["Transcript asset + segments stored"]
+    H --> I["Analyze job runs"]
+    I --> J["Findings + artifacts written"]
+    J --> K["Library / Review updates"]
+```
+
+### What Is Working Well
+
+- Heavy AI execution has a clear runtime owner: Railway
+- The worker now reports `workerReady` and `directExecution`, which is a major ops improvement
+- AI status shape is richer, including `phase`, timing metadata, transcript and finding readiness, and retry count
+- The local release includes clearer failure surfacing and stronger review status presentation
+
+### What Is Still Weak
+
+- Retry tooling is still mostly conceptual rather than operator-friendly
+- Failed jobs are visible, but there is no rich internal control surface yet for requeue and retry
+- Production still depends on environment correctness and queue health rather than deeper self-healing
+- Transcript quality gates are better conceptually than they are operationally automated
+
+### Worker Execution Model Assessment
+
+The current model is directionally correct. The move from “queue then bounce back into Vercel” to “Railway executes jobs directly” is one of the most important readiness improvements in the codebase. This reduces latency uncertainty, clarifies failure ownership, and matches the intended architecture.
+
+### Latency Model Assessment
+
+The user still perceives AI latency because transcription and analysis are inherently non-trivial network operations. The current improvements address perception and architecture, but not the full operator story:
+
+- queue wait time is not yet deeply visualized
+- provider timings are not yet surfaced in a central analytics console
+- preview-before-final-output is still a future optimization, not a fully shipped one
+
+### Evidence
+
+- `Repo-Confirmed`: [worker.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/backend/src/worker.ts)
+- `Repo-Confirmed`: [server.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/backend/src/server.ts)
+- `Repo-Confirmed`: [workspace.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/lib/workspace.ts)
+- `Live Production`: working capture and AI workflow already in use
+- `Requires Production Verification`: stage timings and failure rates after shipping latest local changes
+
+**Current status**: Fundamentally correct architecture, incomplete operational recovery layer  
+**Risk level**: Medium  
+**Recommendation summary**: Keep the direct Railway execution model, and add retry controls, alerts, and stage metrics next
+
+---
+
+## 6. Export and Review Experience
+
+### Export Flow Diagram
+
+```mermaid
+flowchart TB
+    Review["Review page"] --> PDF["PDF export"]
+    Review --> TXT["Transcript download"]
+    Review --> Notion["Notion export"]
+    Review --> Email["Email draft"]
+
+    PDF --> Log["meeting_exports"]
+    TXT --> Log
+    Notion --> Log
+    Email --> Log
+```
+
+### Review / Export UI Sketch
 
 ```text
-+----------------------------------- NextStop Dashboard -----------------------------------+
-| Sidebar | Main cards / library / integrations                         | Right-side dock  |
-|         |                                                             | [logo]           |
-|         |                                                             | [Google Meet]    |
-|         |                                                             | [Start]          |
-|         |                                                             | [Pause/Resume]   |
-|         |                                                             | [End]            |
-|         |                                                             | [Notion]         |
-|         |                                                             | status chips     |
-+------------------------------------------------------------------------------------------+
++----------------------------------------------------------------------------------+
+| Meeting Title                                            [Copy] [Export PDF]     |
+| Time | Source | Status | Transcript Ready | Findings Ready                       |
++----------------------------------------------------------------------------------+
+| Summary                                                                          |
+| Decisions                                                                        |
+| Action Items                                                                     |
+| Risks / Follow-ups                                                               |
++--------------------------------------+-------------------------------------------+
+| Transcript Access                    | Export Actions                            |
+| [Temporary transcript]               | [PDF] [Notion] [Email Draft]              |
+| Expires at ...                       | History + status + failures               |
++--------------------------------------+-------------------------------------------+
 ```
+
+### Review Assessment
+
+The review page is materially closer to a product-ready surface now. It emphasizes outputs and actions more than internal pipeline detail, which is the right direction. The current local release also removes some lower-value UI clutter and improves export history visibility.
+
+### Export Assessment
+
+The major readiness gain is not just that exports exist, but that exports are now being treated as auditable operations:
+
+- `meeting_exports` now tracks `status`
+- failures can store `latest_error`
+- duration can be captured in `duration_ms`
+- completion can be timestamped
+
+This is exactly the kind of operational data that turns a feature into a production feature.
+
+### Remaining Gaps
+
+- no centralized export center yet
+- no first-class retry UX for failed exports
+- PDF generation may still need async handling later if latency grows
+- transcript availability still depends on policy and storage correctness staying aligned
+
+### Evidence
+
+- `Repo-Confirmed`: [MeetingReview.tsx](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/components/workspace/MeetingReview.tsx)
+- `Repo-Confirmed`: [meeting-exports.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/lib/meeting-exports.ts)
+- `Repo-Confirmed`: [20260401_export_ops_hardening.sql](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/backend/supabase/migrations/20260401_export_ops_hardening.sql)
+- `Requires Production Verification`: export failure logging and duration capture in live traffic
+
+**Current status**: Good UX trajectory with much better export observability  
+**Risk level**: Medium  
+**Recommendation summary**: Ship the improved export telemetry, then build centralized history and retry controls
 
 ---
 
-## 2. Category Scorecard and Rationale
+## 7. Performance and UX Audit
 
-## 2.1 Security - 80/100
-
-### Strengths
-
-- sensitive server operations are kept in server-only modules such as:
-  - [env.ts](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/lib/env.ts)
-  - [supabase-admin.ts](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/lib/supabase-admin.ts)
-  - [google-workspace.ts](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/lib/google-workspace.ts)
-  - [notion-workspace.ts](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/lib/notion-workspace.ts)
-- raw internal errors are masked by [http.ts](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/lib/http.ts)
-- privileged DB writes use the admin client only from server routes/helpers
-- `.env.example` exists and the repo no longer depends on hardcoded provider values
-- transcript text is explicitly non-durable by design
-
-### Risks
-
-- there is no dedicated security middleware layer for CSP/header hardening documented in this repo
-- server logging is still mostly `console.error`/`console.warn`, which is functional but not fully structured
-- webhook verification is handled for Razorpay, but broader operational security observability is still light
-
-### Security Diagram
-
-```mermaid
-flowchart TD
-  A["Client UI"] --> B["Next route handler"]
-  B --> C["Supabase server auth"]
-  C --> D{"Authorized user?"}
-  D -- "No" --> E["401 / redirect"]
-  D -- "Yes" --> F["Provider call / DB access"]
-  F --> G["Safe public error envelope"]
-  F --> H["Server-only secret usage"]
-```
-
-### Launch Verdict
-
-- **Good enough to launch**
-- Should be followed by a formal post-launch AppSec review
-
----
-
-## 2.2 Authentication & Authorization - 86/100
-
-### Strengths
-
-- Supabase session handling is enforced in:
-  - [proxy.ts](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/proxy.ts)
-  - [workspace-page.ts](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/lib/workspace-page.ts)
-- dashboard pages require both:
-  - a valid user
-  - valid subscription access
-- per-meeting ownership checks exist on export/transcript/finalize routes
-- auth callback handling routes Google back to the correct page instead of generic failure routes
-
-### Risks
-
-- auth and provider integration flows still share some callback-era legacy in [auth/callback/route.ts](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/app/auth/callback/route.ts)
-- there is not yet a full automated regression suite for auth/billing route behavior
-
-### Auth Flow Diagram
-
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant P as Proxy
-  participant A as App Entry / Dashboard
-  participant S as Supabase
-  participant B as Billing Access Resolver
-
-  U->>P: Request /dashboard
-  P->>S: getUser()
-  S-->>P: Session / no session
-  P-->>U: Redirect to /login if missing
-  U->>A: Authenticated request
-  A->>B: resolveAccessContext()
-  B-->>A: plan + access state
-  A-->>U: Dashboard or /plans redirect
-```
-
-### Verdict
-
-- **Strong**
-- One of the more production-ready parts of the app
-
----
-
-## 2.3 Billing & Access Gating - 84/100
-
-### Strengths
-
-- access state normalization and fallback logic are centralized in [billing-server.ts](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/lib/billing-server.ts)
-- trial expiry synchronization exists
-- dashboard access gating is handled server-side
-- profile/subscription fallback behavior reduces schema fragility
-
-### Risks
-
-- needs stronger automated verification around:
-  - expired trials
-  - paid-but-expiring states
-  - webhook-driven subscription updates
-
-### Billing Verdict
-
-- **Launch-ready with smoke testing**
-
----
-
-## 2.4 Google Integration - 82/100
-
-### What improved
-
-- stale-token handling now lives in [google-workspace.ts](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/lib/google-workspace.ts)
-- Google 401s no longer need to hard-fail the overview route
-- refresh-token recovery is supported when:
-  - `GOOGLE_CLIENT_ID`
-  - `GOOGLE_CLIENT_SECRET`
-  are present
-- reconnect-required state is now part of the intended runtime behavior
-
-### Flow Diagram
-
-```mermaid
-flowchart TD
-  A["Google page / dock action"] --> B["Load integration"]
-  B --> C{"Access token valid?"}
-  C -- "Yes" --> D["Call Google API"]
-  C -- "No" --> E{"Refresh token available?"}
-  E -- "Yes" --> F["Refresh access token"]
-  F --> G{"Refresh succeeded?"}
-  G -- "Yes" --> D
-  G -- "No" --> H["Mark reconnect required"]
-  E -- "No" --> H
-  H --> I["Graceful UI state instead of hard 500"]
-```
-
-### UI Sketch
+### Library Loading Sketch
 
 ```text
 +----------------------------------------------------------------------------------+
-| Google Workspace                                              [Reconnect Google] |
-| Status: Reconnect required                                                    |
-| Your Google session expired. Reconnect to create Meets or read calendars.     |
-|                                                                                |
-| [Reconnect] [Refresh workspace]                                                |
+| Library                                                   [Search..............]  |
++----------------------------------------------------------------------------------+
+| [Skeleton card]                                                                  |
+| [Skeleton card]                                                                  |
+| [Skeleton card]                                                                  |
+| [Skeleton card]                                                                  |
++----------------------------------------------------------------------------------+
+| After load:                                                                       |
+| Meeting A | Ready | 5 artifacts | Open review                                    |
+| Meeting B | Transcript ready | Processing | Open review                           |
+| Meeting C | Failed | Retry | Open review                                          |
 +----------------------------------------------------------------------------------+
 ```
 
-### Risks
+### What Is Polished
 
-- real production OAuth consent settings still need operator validation
-- refresh-token support depends on provider returning refresh tokens consistently
+- dashboard shell concept is now coherent
+- sidebar capture location is much more stable
+- route-level loading states and lighter library data contracts improve perceived speed
+- review is less cluttered and more action-oriented
 
-### Verdict
+### What Still Feels Rough
 
-- **Good**
-- Production-safe if provider envs and Google console settings are correct
+- long AI work can still feel slow because the system is doing real asynchronous work without a full “stage analytics” experience
+- there is still room to improve user trust messaging during long-running states
+- some pages still depend on server-side loaders that are better than before, but not the final ideal architecture
+
+### Performance Assessment
+
+The repo shows good progress on perceived performance:
+
+- page-specific loaders
+- server-side search and pagination contracts for library
+- reduced over-fetching
+- route prefetching from the dashboard shell
+
+This is a meaningful improvement over the earlier broad overview-loader approach. The remaining performance work is now mostly about deeper telemetry, cache behavior, and making asynchronous AI phases feel more explainable to the user.
+
+### Evidence
+
+- `Repo-Confirmed`: [workspace-server.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/lib/workspace-server.ts)
+- `Repo-Confirmed`: [workspace-page.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/lib/workspace-page.ts)
+- `Repo-Confirmed`: dashboard route loading files under `frontend/src/app/(dashboard)/dashboard/**/loading.tsx`
+- `Locally Validated`: frontend build and tests
+- `Requires Production Verification`: real route timings and user-perceived latency on live Vercel
+
+**Current status**: Strongly improving; good perceived-speed direction  
+**Risk level**: Medium  
+**Recommendation summary**: Measure real production timings next and continue simplifying long-running feedback states
 
 ---
 
-## 2.5 Notion Integration - 79/100
+## 8. Code Quality and Maintainability Review
 
-### What improved
+### Scorecard
 
-- Notion now uses a local workspace-owned broker path instead of relying on undeployed Supabase functions
-- connection, callback, destination loading, destination selection, and export all live in:
-  - [notion-workspace.ts](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/lib/notion-workspace.ts)
-  - [connect route](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/app/api/workspace/notion/connect/route.ts)
-  - [callback route](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/app/api/workspace/notion/callback/route.ts)
-  - [destinations route](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/app/api/workspace/notion/destinations/route.ts)
-  - [select route](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/app/api/workspace/notion/destinations/select/route.ts)
+| Category | Score | Notes |
+|---|---:|---|
+| Architecture | 4.0 / 5 | Strong direction, but split runtime ownership still exists |
+| Maintainability | 3.8 / 5 | Types and loaders are improving, though some responsibilities are still mixed |
+| Observability | 3.6 / 5 | Better than before, especially with readiness and export telemetry, but alerting is still thin |
+| Testability | 4.0 / 5 | Strong frontend validation set; could use more end-to-end operational tests |
+| Deployment safety | 4.0 / 5 | CI, security, and post-deploy verify are strong improvements |
+| Documentation quality | 4.2 / 5 | Repo docs, runtime ownership, and runbook are now useful and aligned |
 
-### Flow Diagram
+### Assessment
+
+#### Strengths
+
+- Type contracts in [workspace.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/lib/workspace.ts) are explicit and increasingly production-oriented
+- Loader boundaries in [workspace-server.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/lib/workspace-server.ts) are noticeably cleaner than a broad “everything overview” pattern
+- Runtime ownership is now documented, which reduces ambiguity
+- New docs and runbooks are aligned with the actual repo structure
+
+#### Maintainability Risks
+
+- `frontend/src/app/api/**` still hosts more backend-like logic than ideal
+- some operational logic still lives across multiple layers instead of through a single backend boundary
+- error handling is improving, but still inconsistent between user-facing recovery copy, export ledger, and ops failure records
+
+#### Technical Debt Classification
+
+Acceptable:
+
+- hybrid runtime split for the current stage
+- some orchestration remaining in Next.js while heavy AI runs on Railway
+
+Becoming risky:
+
+- keeping too much authenticated business logic in Vercel long term
+- limited operator action tooling for failed jobs and exports
+- depending on manual awareness instead of alerting for failures
+
+### Evidence
+
+- `Repo-Confirmed`: [workspace.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/lib/workspace.ts)
+- `Repo-Confirmed`: [workspace-server.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/lib/workspace-server.ts)
+- `Repo-Confirmed`: [runtime-ownership.md](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/docs/runtime-ownership.md)
+- `Repo-Confirmed`: [production-runbook.md](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/docs/production-runbook.md)
+
+**Current status**: Good engineering direction with manageable but real debt  
+**Risk level**: Medium  
+**Recommendation summary**: Preserve the current structure, but continue consolidating backend ownership and failure handling patterns
+
+---
+
+## 9. CI/CD and Release Safety
+
+### Delivery Flow Diagram
 
 ```mermaid
-sequenceDiagram
-  participant UI as Notion Page
-  participant API as Next API
-  participant N as Notion
-  participant DB as Supabase
-
-  UI->>API: POST /api/workspace/notion/connect
-  API-->>UI: authorizeUrl
-  UI->>N: OAuth authorize
-  N->>API: callback with code + state
-  API->>API: verify signed state
-  API->>N: exchange code
-  N-->>API: token + workspace metadata
-  API->>DB: upsert integrations_notion
-  UI->>API: load destinations
-  API->>N: /search
-  UI->>API: save destination
-  API->>DB: persist destination
+flowchart LR
+    Push["GitHub push"] --> CI["CI workflow"]
+    CI --> Security["Security workflow"]
+    CI --> DeployV["Vercel deploy"]
+    CI --> DeployR["Railway deploy"]
+    DeployV --> Verify["Post-deploy verification"]
+    DeployR --> Verify
+    Verify --> Ready["Healthy release"]
+    Verify --> Alert["Failure / rollback decision"]
 ```
 
-### UI Sketch
+### Current Pipeline Review
+
+The repo now has a sensible release safety story:
+
+- `.github/workflows/ci.yml` runs typecheck, lint, build, repo contract tests, unit and route coverage, and browser smoke
+- `.github/workflows/security.yml` runs secret scanning, dependency audit, and CodeQL
+- `.github/workflows/post-deploy-verify.yml` can run automatically on `main` using `PRODUCTION_BASE_URL`
+
+### What Is Already Strong
+
+- CI covers the main frontend safety rails
+- security checks are present and not merely nominal
+- post-deploy verification is now explicitly part of the release model instead of a side note
+
+### What Is Still Manual
+
+- deployment sequencing itself still depends on external platforms succeeding
+- some live verification still depends on post-deploy smoke rather than true staged promotion logic
+- no automatic rollback is described or implemented yet
+
+### Safety Assessment
+
+This is good enough for current scale. The release process is not enterprise-grade, but it is responsible and increasingly production-conscious. The addition of `PRODUCTION_BASE_URL`-driven deployed verification is a meaningful maturity step.
+
+### Evidence
+
+- `Repo-Confirmed`: [ci.yml](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/.github/workflows/ci.yml)
+- `Repo-Confirmed`: [security.yml](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/.github/workflows/security.yml)
+- `Repo-Confirmed`: [post-deploy-verify.yml](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/.github/workflows/post-deploy-verify.yml)
+- `Locally Validated`: frontend typecheck, lint, tests with coverage, build, backend typecheck
+- `Requires Production Verification`: automatic run against the real deployed URL after next release
+
+**Current status**: Strong for the current company stage  
+**Risk level**: Low to Medium  
+**Recommendation summary**: Keep this pipeline, then add rollback guidance, alerting, and richer smoke assertions over time
+
+---
+
+## 10. Ops and Monitoring Review
+
+### Ops Console Sketch
 
 ```text
 +----------------------------------------------------------------------------------+
-| Notion Export Workspace                                                          |
-| Status: Connected / Destination needed / Reconnect required                      |
-|                                                                                  |
-| Available destinations                                                           |
-| [ Product Notes Page (page)                v ]                                   |
-|                                                                                  |
-| [Save destination] [Refresh destinations] [Reconnect] [Disconnect]              |
-|                                                                                  |
-| Current destination: Product Notes Page                                          |
+| Production Readiness                                                             |
++----------------------------------------------------------------------------------+
+| Frontend: Healthy | Backend: Healthy | Worker: Healthy | Queue: 3 waiting        |
+| Supabase: Healthy | Deepgram: Healthy | OpenAI: Healthy | Last deploy: Passed     |
++----------------------------------------------------------------------------------+
+| Recent AI failures                                                               |
+| Meeting ID     Stage        Error                              Mode               |
+| 91e...         transcribe   empty transcript                   railway_remote     |
++----------------------------------------------------------------------------------+
+| Recent export failures                                                           |
+| Meeting ID     Export       Error                              Duration           |
+| a12...         PDF          timeout                            1842 ms            |
 +----------------------------------------------------------------------------------+
 ```
 
-### Risks
+### Ops Assessment
 
-- Notion redirect URI mismatch is still the most likely real-world launch failure
-- token refresh is not as mature as Google's flow
-- the export UX is solid but not deeply instrumented
+This is one of the most important improvements in the current local release. Before this work, the product had health endpoints and scattered runtime checks, but not a clear internal “is the system okay?” page. The new [WorkspaceOps.tsx](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/components/workspace/WorkspaceOps.tsx) addresses that gap directly by surfacing:
 
-### Verdict
+- runtime boundary information
+- readiness checks
+- recent AI failures
+- recent export failures
+- worker heartbeat and queue identity
 
-- **Good enough for launch**
-- Needs exact dashboard config and live smoke validation
+### Monitoring Maturity
+
+Current maturity is good for visibility, but not yet for full automation:
+
+- visibility: improving strongly
+- alerting: still limited
+- runbooks: now present, but still basic
+- incident automation: not mature yet
+
+### Operator Independence
+
+The product is moving in the right direction. An operator can now understand more of the system without directly opening the database, but still cannot fully recover from issues without engineering support. That is acceptable for a young product, but not the final state.
+
+### Evidence
+
+- `Repo-Confirmed`: [WorkspaceOps.tsx](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/components/workspace/WorkspaceOps.tsx)
+- `Repo-Confirmed`: [page.tsx](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/app/(dashboard)/dashboard/ops/page.tsx)
+- `Repo-Confirmed`: [route.ts](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/frontend/src/app/api/health/readiness/route.ts)
+- `Repo-Confirmed`: [production-runbook.md](C:/Users/ADMIN/Desktop/nextstop.ai/nextstop.ai-web/docs/production-runbook.md)
+- `Requires Production Verification`: ops page behavior against real live failures after release
+
+**Current status**: Good visibility, limited active operations tooling  
+**Risk level**: Medium  
+**Recommendation summary**: Ship the ops surface, then add alerting, retry actions, and tighter runbooks
 
 ---
 
-## 2.6 Capture Reliability - 74/100
+## 11. Recommendations and Improvements
 
-### What improved
+### 11.1 Product / UX
 
-- capture state is now no longer purely transient in the UI
-- [WorkspaceCaptureIsland.tsx](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/components/workspace/WorkspaceCaptureIsland.tsx) now includes:
-  - explicit failed state
-  - retry finalize action
-  - discard local session action
-  - local persisted recovery hints across refresh
-  - better messaging for track-share endings and failed finalization
+#### Recommendation: Add guided onboarding and activation checklist
 
-### Capture State Diagram
+- `Current gap`: successful first value still depends on the user correctly connecting Google and Notion, understanding capture, and completing a first export
+- `Why it matters`: new users can fail before they ever see product value
+- `User / business impact`: higher activation, lower support burden
+- `Engineering effort`: Medium
+- `Priority`: High
+- `Suggested owner`: Frontend + Product Design + Backend
+
+```mermaid
+flowchart LR
+    ConnectGoogle["Connect Google"] --> TestCapture["Run test capture"]
+    TestCapture --> VerifyAI["Confirm transcript + findings"]
+    VerifyAI --> ConnectNotion["Connect Notion"]
+    ConnectNotion --> FirstExport["Run first export"]
+    FirstExport --> Ready["Workspace ready"]
+```
+
+```text
++----------------------------------------------------------------------------------+
+| Welcome to NextStop                                                              |
++----------------------------------------------------------------------------------+
+| [1] Connect Google                [Connected]                                    |
+| [2] Connect Notion                [Not connected]                                |
+| [3] Run 30-second test capture    [Start]                                        |
+| [4] Verify AI pipeline            [Check]                                        |
+| [5] Export your first summary     [PDF / Notion]                                 |
++----------------------------------------------------------------------------------+
+```
+
+#### Recommendation: Create a centralized export center
+
+- `Current gap`: export history is still mostly meeting-local and not yet globally explorable
+- `Why it matters`: users and operators need to answer “what happened to my export?” quickly
+- `User / business impact`: better trust and supportability
+- `Engineering effort`: Medium
+- `Priority`: High
+- `Suggested owner`: Frontend + Backend + Product Design
+
+```text
++----------------------------------------------------------------------------------+
+| Export Center                                                                    |
++----------------------------------------------------------------------------------+
+| Type       | Meeting                  | Destination      | Status    | Duration   |
+| PDF        | Browser Meeting Apr 1    | download         | completed | 1200 ms    |
+| Notion     | Team Standup             | Workspace page   | failed    | 930 ms     |
+| Transcript | Instant Meet             | download         | completed | 180 ms     |
++----------------------------------------------------------------------------------+
+```
+
+### 11.2 Performance
+
+#### Recommendation: Add production timing dashboards
+
+- `Current gap`: loader and AI timings exist conceptually, but not in a central production dashboard
+- `Why it matters`: performance work becomes guesswork without comparative timing evidence
+- `User / business impact`: faster iteration on latency and responsiveness
+- `Engineering effort`: Medium
+- `Priority`: High
+- `Suggested owner`: Backend + Infra
+
+```mermaid
+flowchart LR
+    UserAction["User action"] --> Loader["Route loader timing"]
+    Loader --> Queue["Queue wait time"]
+    Queue --> Deepgram["Deepgram duration"]
+    Deepgram --> Analyze["Analyze duration"]
+    Analyze --> Export["Export duration"]
+```
+
+### 11.3 Reliability
+
+#### Recommendation: Add operator retry controls for failed jobs and exports
+
+- `Current gap`: operators can see failures but cannot recover from them directly in the app
+- `Why it matters`: visibility without action still creates engineering dependency
+- `User / business impact`: faster support resolution, fewer stuck states
+- `Engineering effort`: Medium to High
+- `Priority`: High
+- `Suggested owner`: Frontend + Backend
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Idle
-  Idle --> Granting: Start clicked
-  Granting --> Recording: Browser share granted
-  Granting --> Idle: Share denied
-  Recording --> Paused: Pause
-  Paused --> Recording: Resume
-  Recording --> Processing: End
-  Paused --> Processing: End
-  Recording --> Failed: Recorder/track issue
-  Processing --> Failed: Finalize/upload issue
-  Failed --> Processing: Retry
-  Failed --> Idle: Discard
-  Processing --> Idle: Success
+    [*] --> failed
+    failed --> inspect
+    inspect --> retry_job
+    inspect --> retry_export
+    retry_job --> queued
+    retry_export --> processing
 ```
 
-### UI Sketch
+### 11.4 Observability / Ops
 
-```text
-Collapsed:
-[logo]
+#### Recommendation: Add alerting for worker heartbeat, queue backlog, and repeated failures
 
-Expanded:
-+----------------------+
-| [logo]               |
-| Session live         |
-|                      |
-| [ Google Meet ]      |
-| [ Start ]            |
-| [ Pause ]            |
-| [ End ]              |
-| [ Notion ]           |
-|                      |
-| Tab shared           |
-| Mic live             |
-| 12:44                |
-|                      |
-| Failed? [Retry]      |
-|         [Discard]    |
-+----------------------+
-```
-
-### Remaining weaknesses
-
-- browser capture still cannot truly resume media recording after refresh
-- recovery is UX-level, not full media-level session continuation
-- one active session per app tab remains the supported model
-
-### Verdict
-
-- **Acceptable for launch**
-- This is the main place where real browser QA matters tonight
-
----
-
-## 2.7 Transcript Lifecycle Safety - 78/100
-
-### Problem solved
-
-The old model was:
-
-- transcript stored only in server memory
-- review UI assumed download would work
-- behavior would be unpredictable in production/serverless
-
-### Current model
-
-- transcript remains non-durable
-- transcript availability is now explicit
-- production can disable transcript downloads entirely
-- transcript retention is now environment-driven
-
-### Transcript Lifecycle Diagram
+- `Current gap`: the current system is readable, but not truly proactive
+- `Why it matters`: production issues should be caught before users report them
+- `User / business impact`: reduced incident duration and better operator confidence
+- `Engineering effort`: Medium
+- `Priority`: High
+- `Suggested owner`: Infra
 
 ```mermaid
-flowchart TD
-  A["Finalize route"] --> B["Ephemeral transcript store"]
-  B --> C["Review page reads transcript availability"]
-  C --> D{"Download enabled?"}
-  D -- "Yes" --> E["Temporary transcript download"]
-  D -- "No" --> F["Review explains transcript is unavailable"]
-  E --> G["Findings remain durable"]
-  F --> G
+flowchart LR
+    Worker["Worker heartbeat"] --> Alert["Alert rules"]
+    Queue["Queue backlog"] --> Alert
+    Readiness["Readiness failures"] --> Alert
+    Failures["Repeated AI/export failures"] --> Alert
+    Alert --> Operator["Operator response"]
 ```
 
-### Production Recommendation
+### 11.5 AI / Data Quality
 
-For tonight:
+#### Recommendation: Add transcript quality diagnostics and preview-before-final
 
-- safest production value:
-  - `TRANSCRIPT_STORAGE_MODE=disabled`
-
-If you deliberately want temporary transcript access tonight:
-
-- `TRANSCRIPT_STORAGE_MODE=memory`
-- `ALLOW_MEMORY_TRANSCRIPT_DOWNLOADS_IN_PRODUCTION=true`
-
-This is acceptable only if you understand it remains single-instance and ephemeral.
-
-### Verdict
-
-- **Good with explicit operator choice**
-- No longer an implicit production landmine
-
----
-
-## 2.8 Library / Review / Export UX - 83/100
-
-### Strengths
-
-- unified Library exists for scheduled and captured meetings
-- Review page includes:
-  - findings summary
-  - PDF export
-  - email draft
-  - transcript access state
-  - Notion export
-  - export history
-- stale placeholder copy and encoding artifacts have been cleaned up
-
-### Library State Diagram
-
-```mermaid
-flowchart TD
-  A["Meeting row"] --> B{"status"}
-  B -- "scheduled / draft" --> C["Join meet / open event / start capture"]
-  B -- "capturing" --> D["Open controls"]
-  B -- "processing" --> E["Processing state"]
-  B -- "ready" --> F["Open review + exports"]
-  B -- "failed" --> G["Needs attention"]
-```
-
-### UI Sketches
+- `Current gap`: users still often wait for final outputs before getting meaningful confirmation
+- `Why it matters`: fast first value improves trust and perceived intelligence
+- `User / business impact`: better experience without higher AI cost
+- `Engineering effort`: Medium
+- `Priority`: Medium
+- `Suggested owner`: Backend + Frontend
 
 ```text
-Library Card: Scheduled Google Meeting
-+----------------------------------------------------------------------------------+
-| Product Review                          [Scheduled] [Google Meet]                |
-| Mar 24, 4:00 PM                                                              >  |
-| Meet created. Capture it when the meeting starts.                               |
-| [Join Meet] [Open Event] [Start Capture]                                        |
-+----------------------------------------------------------------------------------+
-
-Library Card: Ready Meeting
-+----------------------------------------------------------------------------------+
-| Candidate Interview                     [Ready] [Browser Tab]                    |
-| Mar 21, 6:10 PM                                                              >  |
-| Strong alignment on backend ownership and API design...                         |
-| Exports: Notion success | PDF ready                                             |
-+----------------------------------------------------------------------------------+
-```
-
-### Risks
-
-- export history is useful but still not deeply descriptive
-- transcript button behavior depends on the chosen transcript mode
-
-### Verdict
-
-- **Strong**
-
----
-
-## 2.9 Logging, Monitoring, and Operational Visibility - 70/100
-
-### Strengths
-
-- unsafe internal errors are not leaked to users
-- context-specific server logging exists in failure paths
-- readiness endpoint now exists
-
-### Current weakness
-
-- this app still does not have full structured production telemetry
-- no Sentry/Datadog/OpenTelemetry-grade visibility is integrated here
-- log events are informative but not centrally modeled
-
-### Monitoring Diagram
-
-```mermaid
-flowchart TD
-  A["User flow"] --> B["Route / integration call"]
-  B --> C["Safe user-facing error"]
-  B --> D["Server log context"]
-  D --> E["Operator triage"]
-  E --> F["Manual recovery / reconnect / retry"]
-```
-
-### Verdict
-
-- **Serviceable tonight**
-- should be upgraded after launch
-
----
-
-## 2.10 Deployment & Configuration - 88/100
-
-### What is now in place
-
-- central env/config helper at [env.ts](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/lib/env.ts)
-- readiness route at [readiness route](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/app/api/health/readiness/route.ts)
-- updated [.env.example](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/.env.example)
-- rewritten [README.md](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/README.md)
-- release checklist in [production-runbook.md](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/docs/production-runbook.md)
-
-### Deployment Readiness Diagram
-
-```mermaid
-flowchart TD
-  A["Vercel deploy"] --> B["Env validation"]
-  B --> C["Google / Notion callbacks"]
-  B --> D["Billing / webhooks"]
-  B --> E["Transcript mode"]
-  C --> F["Smoke tests"]
-  D --> F
-  E --> F
-  F --> G["Go live"]
-```
-
-### Verdict
-
-- **Strong**
-- probably the most improved category in this pass
-
----
-
-## 2.11 Testing & Verification - 89/100
-
-### What is good
-
-- current codebase passes:
-  - `npx tsc --noEmit`
-  - `npm run lint`
-  - `npm run build`
-- repo contract validation exists:
-  - `npm run test:repo-contract`
-- automated mocked unit and route coverage exists via Vitest
-- automated browser smoke coverage exists via Playwright
-- CI workflows now exist for:
-  - PR static gates
-  - mocked integration coverage
-  - browser smoke
-  - secret scanning
-  - dependency audit
-  - CodeQL
-  - post-deploy readiness verification
-
-### What is still missing
-
-- provider-backed end-to-end checks with real Google and Notion credentials are still deferred out of PR CI
-- capture media-device automation is still shallow compared with the full browser/device surface
-- production smoke testing still includes operator-run checks for the real integrated flows
-
-### Verdict
-
-- **This category is now launch-grade**
-- the remaining gap is depth, not absence
-
----
-
-## 2.12 Documentation & Launch Operations - 87/100
-
-### Strengths
-
-- repo no longer has a template README
-- launch/runbook documentation exists
-- env surface is documented
-- transcript mode is explicitly documented
-
-### Verdict
-
-- **Strong**
-
----
-
-## 3. Strengths Since the Hardening Pass
-
-| Area | Before | Now |
-|---|---|---|
-| Env/runtime handling | scattered | centralized |
-| Google expired token behavior | raw failures possible | reconnect/refresh-aware |
-| Notion connect model | fragmented and misleading | local broker flow |
-| Capture recovery | reset-prone | retry/discard recovery model |
-| Transcript production behavior | unsafe implicit memory-only | explicit bounded policy |
-| Review UX | transcript/export ambiguity | explicit availability state |
-| Launch docs | default README | real production docs |
-| Legacy paths | conflicting old components remained | retired |
-
----
-
-## 4. Launch Blockers vs Launch Checks
-
-## 4.1 Hard blockers
-
-These must be correct before launch:
-
-1. Vercel env variables must be set correctly
-2. Google OAuth redirect URIs must match live config
-3. Notion redirect URI must match live config
-4. Transcript mode must be intentionally chosen
-5. Supabase service role key must exist in server env only
-
-## 4.2 Soft risks
-
-These are not blockers, but they remain meaningful:
-
-1. no deep automated e2e coverage
-2. limited structured monitoring
-3. browser capture can still fail for user-environment reasons
-4. transcript temporary-download semantics may confuse some users if not communicated clearly
-
----
-
-## 5. Final Launch Recommendation
-
-> [!IMPORTANT]
-> **NextStop Web is ready for production tonight, with operator validation.**
-
-### Go-Live Conditions
-
-Launch if all of the following are true:
-
-- `npm run build` passes on the deployment branch
-- `npm run lint` passes on the deployment branch
-- `/api/health/readiness` is healthy after deployment
-- Google connect/reconnect is smoke-tested
-- Notion connect/save destination/export is smoke-tested
-- capture start/end and Library/Review path are smoke-tested
-- billing-gated access is smoke-tested
-- transcript mode is intentionally set, not left accidental
-
-### Recommended Transcript Mode Tonight
-
-- **Recommended**: `TRANSCRIPT_STORAGE_MODE=disabled`
-
-This gives the safest production behavior while keeping findings durable and preventing misleading transcript guarantees.
-
----
-
-## 6. Immediate Post-Launch Priorities
-
-These are the best next steps after tonight's release:
-
-1. Add end-to-end tests for:
-   - Google connect/reconnect
-   - Notion connect/destination/export
-   - capture flow
-   - transcript-mode variants
-2. Add structured production monitoring
-3. Improve multi-instance-safe transcript delivery if transcript download remains a product requirement
-4. Harden capture resilience further for refresh/browser interruptions
-5. Move into the separate AI/transcription quality phase
-
----
-
-## 7. Final Score Summary
-
-```text
-Overall Readiness: 82/100
-
-Security......................... 80
-Authentication & AuthZ........... 86
-Billing & Access Gating.......... 84
-Google Integration............... 82
-Notion Integration............... 79
-Capture Reliability.............. 74
-Transcript Lifecycle Safety...... 78
-Library / Review / Export........ 83
-Logging & Monitoring............. 70
-Deployment & Configuration....... 88
-Testing & Verification........... 89
-Documentation & Operations....... 87
-```
-
-### Final Interpretation
-
-- Product shell: **ready**
-- Integrations: **ready with operator verification**
-- Capture runtime: **good enough, still the highest UX risk area**
-- Ops/deployment: **ready**
-- AI/transcription improvements: **intentionally deferred**
-
----
-
-## Appendix A. Weighted Readiness Methodology
-
-This report does not treat every category equally. The weights reflect the launch risk profile of this specific application:
-
-- categories with direct launch-blocking potential such as security, auth, capture runtime, and deployment carry more weight
-- categories like documentation matter, but do not outweigh hard runtime risks
-- AI and transcription quality are intentionally excluded, so the score focuses on the non-AI product shell
-
-### Weighting Diagram
-
-```mermaid
-pie title Production Readiness Weighting
-  "Security" : 12
-  "Authentication & Authorization" : 10
-  "Billing & Access" : 8
-  "Google Integration" : 8
-  "Notion Integration" : 8
-  "Capture Reliability" : 12
-  "Transcript Lifecycle Safety" : 6
-  "Library / Review / Export" : 8
-  "Logging & Monitoring" : 7
-  "Deployment & Configuration" : 8
-  "Testing & Verification" : 9
-  "Documentation & Operations" : 6
-```
-
-### Scoring Rubric
-
-| Band | Meaning | Launch implication |
-|---|---|---|
-| 90-100 | Excellent | Very low launch concern |
-| 80-89 | Strong | Production-ready with normal operator care |
-| 70-79 | Good | Launchable with explicit caution |
-| 60-69 | Acceptable | Launchable only with disciplined manual checks |
-| Below 60 | Weak | Should block or significantly delay launch |
-
----
-
-## Appendix B. Launch Gates, No-Go Conditions, and Rollback Triggers
-
-### Go-Live Gates
-
-All of the following should be true before opening the app to production users:
-
-1. `npm run build` passes on the deployment commit
-2. `npm run lint` passes on the deployment commit
-3. `GET /api/health/readiness` reports healthy or expected-safe warnings only
-4. Google connect and Google Meet creation succeed in production
-5. Notion connect, destination load, and destination save succeed in production
-6. Capture can start, pause, end, and open Review successfully
-7. At least one PDF export succeeds
-8. Transcript mode is intentionally set for production
-
-### No-Go Conditions
-
-Do not launch if any of these are true:
-
-- Google or Notion OAuth callback settings are still uncertain
-- billing gating is routing users incorrectly
-- capture cannot reliably complete one end-to-end run
-- the readiness endpoint shows missing critical env configuration
-- transcript mode is unintentional or unknown
-
-### Rollback Triggers
-
-Rollback the first live deployment if any of these appear after go-live:
-
-- provider connect flows consistently fail for valid accounts
-- capture finalize repeatedly fails for clean browser sessions
-- review or export routes begin returning server errors
-- billing-gated users are getting into the workspace incorrectly
-
-### Go / No-Go Diagram
-
-```mermaid
-flowchart TD
-  A["Deploy to production"] --> B["Run readiness endpoint"]
-  B --> C{"Critical envs present?"}
-  C -- "No" --> Z["No-go: fix config"]
-  C -- "Yes" --> D["Google smoke test"]
-  D --> E{"Pass?"}
-  E -- "No" --> Z
-  E -- "Yes" --> F["Notion smoke test"]
-  F --> G{"Pass?"}
-  G -- "No" --> Z
-  G -- "Yes" --> H["Capture to Review smoke test"]
-  H --> I{"Pass?"}
-  I -- "No" --> Z
-  I -- "Yes" --> J["Go live"]
-```
-
----
-
-## Appendix C. Detailed UI Readiness Sketches
-
-### C.1 Dashboard and Right-Side Capture Dock
-
-```text
-+--------------------------------------------------------------------------------------------------+
-| Sidebar                           | Main workspace area                         | Action rail    |
-|                                   |                                             |                |
-| Dashboard                         | Header cards / library / review            | [logo]         |
-| Library                           |                                             | [Google Meet]  |
-| Google                            |                                             | [Start]        |
-| Notion                            |                                             | [Pause]        |
-| Settings                          |                                             | [End]          |
-|                                   |                                             | [Notion]       |
-|                                   |                                             | Tab shared     |
-|                                   |                                             | Mic live       |
-|                                   |                                             | 12:44          |
-+--------------------------------------------------------------------------------------------------+
-```
-
-### C.2 Google Reconnect Page State
-
-```text
-+----------------------------------------------------------------------------------+
-| Google Workspace                                              [Reconnect Google] |
-| Status: Reconnect required                                                      |
-|                                                                                  |
-| Your Google session has expired or become invalid. Reconnect to resume          |
-| Meet creation, event scheduling, and calendar reads.                            |
-|                                                                                  |
-| [Reconnect] [Refresh workspace]                                                  |
-+----------------------------------------------------------------------------------+
-```
-
-### C.3 Notion Destination-Selection State
-
-```text
-+----------------------------------------------------------------------------------+
-| Notion Export Workspace                                                          |
-| Status: Connected, destination needed                                            |
-|                                                                                  |
-| Available destinations                                                           |
-| [ Product Notes Page                         v ]                                  |
-|                                                                                  |
-| Current destination: Not selected                                                |
-|                                                                                  |
-| [Save destination] [Refresh destinations] [Reconnect] [Disconnect]              |
-+----------------------------------------------------------------------------------+
-```
-
-### C.4 Review Page Transcript States
-
-```text
-Transcript available:
 +--------------------------------------------------------------+
-| Transcript                                                   |
-| Available temporarily for download                           |
-| Expires after configured retention window                    |
-| [Download transcript]                                        |
-+--------------------------------------------------------------+
-
-Transcript unavailable:
-+--------------------------------------------------------------+
-| Transcript                                                   |
-| Transcript download is disabled or expired                   |
-| Findings remain available permanently                        |
+| Status: Transcript ready                                     |
+| Quick preview                                                |
+| - Discussion centered on ...                                 |
+| - Main entities mentioned ...                                |
+| Final structured findings are still processing.              |
 +--------------------------------------------------------------+
 ```
 
----
+### 11.6 Architecture Cleanup
 
-## Appendix D. Priority Matrix for Remaining Non-AI Work
+#### Recommendation: Continue migrating backend-worthy routes off Vercel
 
-| Priority | Area | Why it matters | When |
-|---|---|---|---|
-| P0 | Production env validation | Wrong envs can block the whole launch | Before launch |
-| P0 | OAuth callback verification | Provider flows depend on exact URL matching | Before launch |
-| P0 | Capture smoke test | Highest UX-risk area | Before launch |
-| P0 | Transcript mode choice | Prevents accidental production behavior | Before launch |
-| P1 | Add E2E tests | Largest reliability multiplier | Next sprint |
-| P1 | Structured monitoring | Needed for faster incident response | Next sprint |
-| P1 | Capture resilience improvements | Highest user-risk area after launch | Next sprint |
-| P2 | Multi-instance transcript strategy | Needed only if transcript download becomes a product promise | Later |
-| P2 | Formal security hardening | Improves maturity beyond launch baseline | Later |
-
-### Priority Diagram
+- `Current gap`: `frontend/src/app/api/**` still contains too much backend-like logic
+- `Why it matters`: mixed ownership increases debugging time and long-term maintenance cost
+- `User / business impact`: fewer hidden failure modes and clearer scaling path
+- `Engineering effort`: High
+- `Priority`: Medium
+- `Suggested owner`: Backend + Infra
 
 ```mermaid
-quadrantChart
-    title "NextStop Non-AI Production Priorities"
-    x-axis "Lower urgency" --> "Higher urgency"
-    y-axis "Lower impact" --> "Higher impact"
-    quadrant-1 "Do next"
-    quadrant-2 "Do now"
-    quadrant-3 "Later"
-    quadrant-4 "Useful but not urgent"
-    "Env validation" : [0.95, 0.96]
-    "OAuth callback verification" : [0.9, 0.94]
-    "Capture smoke test" : [0.92, 0.9]
-    "Transcript mode decision" : [0.82, 0.78]
-    "E2E test suite" : [0.76, 0.88]
-    "Structured monitoring" : [0.72, 0.82]
-    "Capture resilience improvements" : [0.7, 0.8]
-    "Transcript durability redesign" : [0.45, 0.65]
+flowchart LR
+    Current["Current: Vercel UI + some API logic"] --> Transition["Move backend-worthy endpoints"]
+    Transition --> Target["Target: Vercel UI, Railway compute and service APIs"]
 ```
 
+### 11.7 CI/CD and Release Process
+
+#### Recommendation: Add rollback playbook automation and richer deployed smoke assertions
+
+- `Current gap`: post-deploy verification exists, but rollback remains process-driven rather than guided
+- `Why it matters`: bad releases need faster, safer operator handling
+- `User / business impact`: lower blast radius when something breaks
+- `Engineering effort`: Medium
+- `Priority`: Medium
+- `Suggested owner`: Infra + QA
+
+```mermaid
+flowchart LR
+    Deploy["Deploy"] --> Verify["Post-deploy verify"]
+    Verify --> Healthy["Keep live"]
+    Verify --> Failed["Flag release unhealthy"]
+    Failed --> Rollback["Guided rollback"]
+```
+
+### 11.8 Future Growth Features
+
+#### Recommendation: Build searchable meeting intelligence
+
+- `Current gap`: library is operationally better, but still limited as a knowledge retrieval surface
+- `Why it matters`: long-term product value grows when meetings are queryable by meaning, status, and history
+- `User / business impact`: stronger retention and better repeat use
+- `Engineering effort`: Medium to High
+- `Priority`: Medium
+- `Suggested owner`: Frontend + Backend + Product
+
+```text
++----------------------------------------------------------------------------------+
+| Search meetings [..............................................................]  |
+| Filters: [Date] [Source] [Status] [Exports] [Has transcript]                    |
++----------------------------------------------------------------------------------+
+| Meeting A | transcript_ready | Google Meet | 3 exports                           |
+| Meeting B | ready            | Browser Tab | 1 export                            |
++----------------------------------------------------------------------------------+
+```
+
+**Current status**: Strong recommendation backlog with clear near-term priorities  
+**Risk level**: Low if prioritized; High if postponed indefinitely  
+**Recommendation summary**: Focus next on operator recovery, alerting, onboarding, and route ownership cleanup
+
 ---
 
-## Appendix E. Evidence Map by File
+## 12. Recommended Roadmap
 
-| Readiness area | Primary file references |
-|---|---|
-| Runtime config | [env.ts](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/lib/env.ts) |
-| Readiness checks | [readiness route](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/app/api/health/readiness/route.ts) |
-| Google resilience | [google-workspace.ts](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/lib/google-workspace.ts) |
-| Notion broker flow | [notion-workspace.ts](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/lib/notion-workspace.ts) |
-| Capture recovery | [WorkspaceCaptureIsland.tsx](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/components/workspace/WorkspaceCaptureIsland.tsx) |
-| Review and transcript policy | [MeetingReview.tsx](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/src/components/workspace/MeetingReview.tsx) |
-| Runbook | [production-runbook.md](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/docs/production-runbook.md) |
-| App overview and env docs | [README.md](/C:/Users/ADMIN/Desktop/New%20folder%20(2)/nextstop.ai-web/README.md) |
+### Push in Next Release
 
----
+- ship `/dashboard/ops`
+- ship export telemetry and failure tracking
+- ship post-deploy verification workflow
+- ship runtime ownership and runbook docs
+- confirm `PRODUCTION_BASE_URL`-driven verification succeeds on `main`
 
-*Report generated from the current NextStop Web codebase after the non-AI production-hardening pass on March 21, 2026.*
+### Do in Next 2 Weeks
 
+- add worker, queue, and readiness alerts
+- add operator retry actions for AI jobs and exports
+- verify transcript retention and privacy claims against live storage behavior
+- run a structured production smoke covering Google, Notion, capture, export, and readiness
+
+### Do in Next 30-60 Days
+
+- migrate more backend-worthy `frontend/src/app/api/**` endpoints toward Railway
+- add centralized export center
+- add onboarding checklist
+- add timing dashboards and stage-level latency analysis
+
+### Later / Scale Phase
+
+- searchable meeting intelligence
+- deeper collaboration and admin tooling
+- richer AI quality evaluation and regression set
+- fuller backend consolidation if the product team wants a stricter runtime boundary
+
+### Release Guidance
+
+The correct next move is not another redesign pass. It is to release the already-prepared local improvements, verify production automatically, and then immediately invest in operational maturity. The product has enough surface area and enough real users now that recovery speed, clarity of ownership, and observable failures matter more than adding broad new features.
+
+### Local Validation Snapshot
+
+The following checks were already run successfully in this workspace:
+
+- `npm --prefix frontend run typecheck`
+- `npm --prefix frontend run lint`
+- `npm --prefix frontend run test -- --coverage`
+- `npm --prefix frontend run build`
+- `npm run typecheck:backend`
+
+### Final Sign-Off
+
+`Live Production`: good enough for controlled production, not yet broad-production polished.  
+`Next Release Ready Locally`: ready to ship, with strong evidence and clear post-deploy verification steps.
+
+**Current status**: Release-ready local branch with clear next actions  
+**Risk level**: Medium, primarily operational  
+**Recommendation summary**: Push the current release, watch the automated verification, then harden ops and recovery before chasing larger feature growth

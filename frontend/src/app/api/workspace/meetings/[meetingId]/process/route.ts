@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { queueMeetingProcessing } from "@/lib/ai-pipeline";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient } from "@/lib/supabase-server";
 
@@ -28,6 +29,24 @@ export async function POST(
 
     if (!user) {
       return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    }
+
+    const rateLimit = await enforceRateLimit({
+      policyName: "meeting_process",
+      userId: user.id,
+      meetingId,
+    });
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          error: "AI processing rate limit reached. Retry in a few minutes.",
+          code: "rate_limited",
+          retryAfterSeconds: rateLimit.retryAfterSeconds,
+          policyName: rateLimit.policyName,
+        },
+        { status: 429 }
+      );
     }
 
     const admin = createAdminClient();

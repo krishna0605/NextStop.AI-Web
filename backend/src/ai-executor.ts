@@ -10,13 +10,17 @@ import { getAiQueue } from "./queue.js";
 import { createAdminClient } from "./supabase.js";
 import { transcribeWithDeepgramResult, type DeepgramParagraph } from "./deepgram.js";
 import { fallbackFindings, generateMeetingFindings } from "./workspace-ai.js";
+import { markWorkerDegraded } from "./worker-state.js";
 
 type MeetingStatus =
+  | "finalizing_upload"
   | "queued"
   | "transcribing"
   | "transcript_ready"
   | "analyzing"
   | "processing"
+  | "cancel_requested"
+  | "canceled"
   | "ready"
   | "failed"
   | "partial_success";
@@ -31,11 +35,13 @@ type MeetingArtifactType =
 type AiJobStage =
   | "queued"
   | "uploaded"
+  | "materializing_audio"
   | "transcribing"
   | "normalizing"
   | "extracting"
   | "assembling"
   | "regenerating"
+  | "canceled"
   | "completed";
 
 type AiJobRecord = {
@@ -49,6 +55,9 @@ type AiJobRecord = {
   attempts?: number | null;
   provider_metadata?: Record<string, unknown> | null;
   error?: string | null;
+  cancel_requested_at?: string | null;
+  canceled_at?: string | null;
+  cancel_reason?: string | null;
   started_at?: string | null;
   finished_at?: string | null;
 };
@@ -62,6 +71,8 @@ type MeetingRecord = {
   origin_platform?: string | null;
   transcript_storage?: string | null;
   session_metadata?: Record<string, unknown> | null;
+  cancel_requested_at?: string | null;
+  canceled_at?: string | null;
 };
 
 type MeetingAssetRecord = {
@@ -74,6 +85,12 @@ type MeetingAssetRecord = {
   mime_type?: string | null;
   byte_size?: number | null;
   checksum?: string | null;
+  status?: string | null;
+  expires_at?: string | null;
+  deleted_at?: string | null;
+  deletion_status?: string | null;
+  deletion_error?: string | null;
+  metadata?: Record<string, unknown> | null;
   created_at?: string | null;
 };
 
@@ -97,6 +114,9 @@ type MeetingFindingsRecord = {
   follow_ups_json?: string[] | null;
   email_draft?: string | null;
   source_model?: string | null;
+  generation_mode?: "openai_primary" | "fallback_local" | null;
+  generation_status?: "full_success" | "degraded_success" | "failed" | null;
+  fallback_reason?: string | null;
 };
 
 type SpeakerSegmentRecord = {
@@ -210,6 +230,12 @@ function getAssetExpiryIso(kind: MeetingAssetKind) {
   return new Date(now + getTranscriptRetentionMinutes() * 60 * 1000).toISOString();
 }
 
+function getMeetingStatusForFindingsGeneration(
+  generationStatus: "full_success" | "degraded_success" | "failed"
+): MeetingStatus {
+  return generationStatus === "degraded_success" ? "partial_success" : "ready";
+}
+
 function capTranscriptBudget(transcriptText: string) {
   const trimmed = transcriptText.trim();
   if (trimmed.length <= 12000) {
@@ -261,6 +287,70 @@ async function fetchJobById(jobId: string) {
   }
 
   return (data as AiJobRecord | null) ?? null;
+}
+
+class AiJobCanceledError extends Error {
+  stage: string;
+
+  constructor(stage: string, message: string) {
+    super(message);
+    this.name = "AiJobCanceledError";
+    this.stage = stage;
+  }
+}
+
+async function fetchQueuedAnalyzeJob(meetingId: string, userId: string) {
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("ai_jobs")
+    .select("*")
+    .eq("meeting_id", meetingId)
+    .eq("user_id", userId)
+    .eq("job_type", "analyze")
+    .in("status", ["queued", "cancel_requested"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return (data as AiJobRecord | null) ?? null;
+}
+
+function mergeProviderMetadata(
+  existing: Record<string, unknown> | null | undefined,
+  patch: Record<string, unknown>
+) {
+  return {
+    ...(existing ?? {}),
+    ...patch,
+  };
+}
+
+async function refreshJob(jobId: string) {
+  const nextJob = await fetchJobById(jobId);
+
+  if (!nextJob) {
+    throw new Error("AI job not found.");
+  }
+
+  return nextJob;
+}
+
+async function throwIfCancellationRequested(jobId: string, stage: string) {
+  const job = await refreshJob(jobId);
+
+  if (job.status === "canceled") {
+    throw new AiJobCanceledError(stage, "Processing was canceled by the user.");
+  }
+
+  if (job.status === "cancel_requested" || job.cancel_requested_at) {
+    throw new AiJobCanceledError(stage, "Cancellation requested. Stopping at the next safe checkpoint.");
+  }
+
+  return job;
 }
 
 async function fetchMeeting(meetingId: string, userId: string) {
@@ -365,11 +455,14 @@ async function updateMeetingStatus(
       status,
       session_metadata: nextMetadata,
       ended_at:
+        status === "finalizing_upload" ||
         status === "queued" ||
         status === "transcribing" ||
         status === "transcript_ready" ||
         status === "analyzing" ||
         status === "ready" ||
+        status === "cancel_requested" ||
+        status === "canceled" ||
         status === "failed" ||
         status === "partial_success"
           ? new Date().toISOString()
@@ -529,6 +622,9 @@ async function upsertMeetingFindings(
       follow_ups_json: findings.followUps,
       email_draft: findings.emailDraft,
       source_model: findings.sourceModel,
+      generation_mode: findings.generationMode,
+      generation_status: findings.generationStatus,
+      fallback_reason: findings.fallbackReason,
     },
     {
       onConflict: "meeting_id",
@@ -743,6 +839,8 @@ async function runTranscribe(job: AiJobRecord) {
     throw new Error("Meeting not found for AI job.");
   }
 
+  await throwIfCancellationRequested(job.id, "before_transcription");
+
   const providerMetadata = cloneRecord(job.provider_metadata);
   providerMetadata.execution_mode = "railway_remote";
   providerMetadata.pipeline = {
@@ -762,6 +860,7 @@ async function runTranscribe(job: AiJobRecord) {
     provider_metadata: providerMetadata,
   });
   await updateMeetingStatus(meeting, "transcribing");
+  await throwIfCancellationRequested(job.id, "before_transcription_provider_call");
 
   let transcriptText =
     typeof providerMetadata.sourceText === "string" ? providerMetadata.sourceText.trim() : "";
@@ -778,6 +877,7 @@ async function runTranscribe(job: AiJobRecord) {
   }
 
   transcriptText = normalizeTranscriptText(transcriptText);
+  await throwIfCancellationRequested(job.id, "after_transcription_before_materialization");
 
   if (!transcriptText) {
     throw new Error("No transcript text was available to process.");
@@ -825,6 +925,7 @@ async function runTranscribe(job: AiJobRecord) {
     userId: job.user_id,
     segments: speakerSegments,
   });
+  await throwIfCancellationRequested(job.id, "after_transcript_before_preview");
 
   const previewFindings = fallbackFindings(meeting.title, transcriptText);
   await upsertMeetingFindings(job.meeting_id, job.user_id, previewFindings);
@@ -881,6 +982,7 @@ async function runTranscribe(job: AiJobRecord) {
   await updateMeetingStatus(meeting, "transcript_ready", {
     transcript_ready_at: transcriptReadyAt,
   });
+  await throwIfCancellationRequested(job.id, "after_transcript_ready_before_analyze_enqueue");
 
   try {
     const analyzeJob = await createAnalyzeJob({
@@ -889,8 +991,15 @@ async function runTranscribe(job: AiJobRecord) {
       parentJobId: job.id,
       transcriptReadyAt,
     });
-    await queueAnalyzeJob(analyzeJob);
+    const refreshedAnalyzeJob = await throwIfCancellationRequested(job.id, "before_analyze_enqueue");
+
+    if (refreshedAnalyzeJob.status !== "canceled" && refreshedAnalyzeJob.status !== "cancel_requested") {
+      await queueAnalyzeJob(analyzeJob);
+    }
   } catch (error) {
+    if (error instanceof AiJobCanceledError) {
+      throw error;
+    }
     console.error("[ai-core] Unable to enqueue analyze job after transcript completion", {
       aiJobId: job.id,
       meetingId: job.meeting_id,
@@ -905,6 +1014,8 @@ async function runAnalyze(job: AiJobRecord) {
   if (!meeting) {
     throw new Error("Meeting not found for analyze job.");
   }
+
+  await throwIfCancellationRequested(job.id, "before_analyze");
 
   const transcriptAsset = await fetchLatestTranscriptAsset(job.meeting_id, job.user_id);
 
@@ -924,12 +1035,14 @@ async function runAnalyze(job: AiJobRecord) {
     provider_metadata: providerMetadata,
   });
   await updateMeetingStatus(meeting, "analyzing");
+  await throwIfCancellationRequested(job.id, "before_findings_provider_call");
 
   const transcriptText = await readTranscriptText(transcriptAsset);
   const findingsPayload = await generateMeetingFindings(
     meeting.title,
     capTranscriptBudget(transcriptText)
   );
+  await throwIfCancellationRequested(job.id, "after_findings_before_persist");
 
   await upsertMeetingFindings(job.meeting_id, job.user_id, findingsPayload);
 
@@ -946,7 +1059,18 @@ async function runAnalyze(job: AiJobRecord) {
     follow_ups_json: findingsPayload.followUps,
     email_draft: findingsPayload.emailDraft,
     source_model: findingsPayload.sourceModel,
+    generation_mode: findingsPayload.generationMode,
+    generation_status: findingsPayload.generationStatus,
+    fallback_reason: findingsPayload.fallbackReason,
   };
+
+  if (findingsPayload.generationStatus === "degraded_success") {
+    markWorkerDegraded(
+      findingsPayload.fallbackReason ?? "Findings generation completed in fallback mode.",
+      "analyze",
+      job.id
+    );
+  }
 
   await updateAiJob(job.id, {
     status: "running",
@@ -954,8 +1078,10 @@ async function runAnalyze(job: AiJobRecord) {
     provider_metadata: {
       ...providerMetadata,
       findings: {
-        status: "assembling",
+        status: findingsPayload.generationStatus,
         sourceModel: findingsPayload.sourceModel,
+        generationMode: findingsPayload.generationMode,
+        fallbackReason: findingsPayload.fallbackReason,
       },
     },
   });
@@ -982,16 +1108,21 @@ async function runAnalyze(job: AiJobRecord) {
     provider_metadata: {
       ...providerMetadata,
       findings: {
-        status: "ready",
+        status: findingsPayload.generationStatus,
         sourceModel: findingsPayload.sourceModel,
         generatedAt: findingsReadyAt,
+        generationMode: findingsPayload.generationMode,
+        fallbackReason: findingsPayload.fallbackReason,
       },
       findingsReadyAt,
       timings,
     },
   });
-  await updateMeetingStatus(meeting, "ready", {
+  await updateMeetingStatus(meeting, getMeetingStatusForFindingsGeneration(findingsPayload.generationStatus), {
     findings_ready_at: findingsReadyAt,
+    findings_generation_mode: findingsPayload.generationMode,
+    findings_generation_status: findingsPayload.generationStatus,
+    findings_fallback_reason: findingsPayload.fallbackReason,
   });
 }
 
@@ -1001,6 +1132,8 @@ async function runRegenerate(job: AiJobRecord) {
   if (!meeting || !job.artifact_type) {
     throw new Error("Meeting or artifact type not found for regeneration.");
   }
+
+  await throwIfCancellationRequested(job.id, "before_regenerate");
 
   const [findings, artifacts] = await Promise.all([
     fetchFindings(job.meeting_id, job.user_id),
@@ -1025,8 +1158,10 @@ async function runRegenerate(job: AiJobRecord) {
       execution_mode: "railway_remote",
     },
   });
+  await throwIfCancellationRequested(job.id, "before_regeneration_provider_call");
 
   const regenerated = await generateMeetingFindings(meeting.title, seedContent.markdown);
+  await throwIfCancellationRequested(job.id, "after_regeneration_before_persist");
   const nextSourceModel = regenerated.sourceModel;
   const nextFindings: MeetingFindingsRecord = {
     meeting_id: meeting.id,
@@ -1062,7 +1197,18 @@ async function runRegenerate(job: AiJobRecord) {
         ? regenerated.emailDraft
         : findings?.email_draft ?? regenerated.emailDraft,
     source_model: nextSourceModel,
+    generation_mode: regenerated.generationMode,
+    generation_status: regenerated.generationStatus,
+    fallback_reason: regenerated.fallbackReason,
   };
+
+  if (regenerated.generationStatus === "degraded_success") {
+    markWorkerDegraded(
+      regenerated.fallbackReason ?? "Artifact regeneration completed in fallback mode.",
+      "regenerate",
+      job.id
+    );
+  }
 
   await upsertMeetingFindings(job.meeting_id, job.user_id, {
     summaryShort: nextFindings.summary_short ?? regenerated.summaryShort,
@@ -1074,6 +1220,9 @@ async function runRegenerate(job: AiJobRecord) {
     followUps: nextFindings.follow_ups_json ?? regenerated.followUps,
     emailDraft: nextFindings.email_draft ?? regenerated.emailDraft,
     sourceModel: nextSourceModel,
+    generationMode: regenerated.generationMode,
+    generationStatus: regenerated.generationStatus,
+    fallbackReason: regenerated.fallbackReason,
   });
 
   if (job.artifact_type === "summary") {
@@ -1175,12 +1324,83 @@ async function runRegenerate(job: AiJobRecord) {
       regeneratedArtifact: job.artifact_type,
       sourceModel: nextSourceModel,
       execution_mode: "railway_remote",
+      findings: {
+        status: regenerated.generationStatus,
+        generationMode: regenerated.generationMode,
+        fallbackReason: regenerated.fallbackReason,
+      },
     },
   });
+
+  await updateMeetingStatus(meeting, getMeetingStatusForFindingsGeneration(regenerated.generationStatus), {
+    findings_generation_mode: regenerated.generationMode,
+    findings_generation_status: regenerated.generationStatus,
+    findings_fallback_reason: regenerated.fallbackReason,
+  });
+}
+
+async function markJobCanceled(job: AiJobRecord, canceledStage: string, error: AiJobCanceledError) {
+  const meeting = await fetchMeeting(job.meeting_id, job.user_id);
+  const now = new Date().toISOString();
+  const providerMetadata = cloneRecord(job.provider_metadata);
+
+  await updateAiJob(job.id, {
+    status: "canceled",
+    stage: "canceled",
+    error: null,
+    cancel_requested_at: job.cancel_requested_at ?? now,
+    canceled_at: now,
+    finished_at: now,
+    provider_metadata: {
+      ...providerMetadata,
+      cancel: {
+        requestedAt: job.cancel_requested_at ?? now,
+        canceledAt: now,
+        effectiveStage: canceledStage,
+        effectiveMode: "checkpoint",
+        reason: job.cancel_reason ?? error.message,
+      },
+    },
+  });
+
+  if (job.job_type === "transcribe") {
+    const pendingAnalyzeJob = await fetchQueuedAnalyzeJob(job.meeting_id, job.user_id);
+
+    if (pendingAnalyzeJob) {
+      await updateAiJob(pendingAnalyzeJob.id, {
+        status: "canceled",
+        stage: "canceled",
+        finished_at: now,
+        cancel_requested_at: pendingAnalyzeJob.cancel_requested_at ?? now,
+        canceled_at: now,
+        cancel_reason: job.cancel_reason ?? error.message,
+        provider_metadata: mergeProviderMetadata(pendingAnalyzeJob.provider_metadata, {
+          cancel: {
+            requestedAt: pendingAnalyzeJob.cancel_requested_at ?? now,
+            canceledAt: now,
+            effectiveStage: "queued_after_transcript",
+            effectiveMode: "immediate",
+            reason: job.cancel_reason ?? error.message,
+          },
+        }),
+      });
+    }
+  }
+
+  if (meeting) {
+    await updateMeetingStatus(meeting, "canceled", {
+      cancel_requested_at: meeting.cancel_requested_at ?? job.cancel_requested_at ?? now,
+      canceled_at: now,
+      cancel_reason: job.cancel_reason ?? error.message,
+      cancel_effective_stage: canceledStage,
+      capture_state: "canceled",
+    });
+  }
 }
 
 async function markJobFailed(job: AiJobRecord, failedStage: string, error: unknown) {
   const errorMessage = error instanceof Error ? error.message : "AI processing failed.";
+  markWorkerDegraded(errorMessage, failedStage, job.id);
   await updateAiJob(job.id, {
     status: "failed",
     stage: "completed",
@@ -1190,6 +1410,14 @@ async function markJobFailed(job: AiJobRecord, failedStage: string, error: unkno
       ...(job.provider_metadata ?? {}),
       execution_mode: "railway_remote",
       failed_stage: failedStage,
+      findings:
+        failedStage === "analyze" || failedStage === "regenerate"
+          ? {
+              status: "failed",
+              generationMode: "openai_primary",
+              fallbackReason: errorMessage,
+            }
+          : (job.provider_metadata ?? {}).findings,
     },
   });
 }
@@ -1219,15 +1447,27 @@ export async function executeQueuedJob(jobName: string, payload: JobPayload) {
 
     throw new Error(`Unsupported AI job type: ${jobName}`);
   } catch (error) {
+    if (error instanceof AiJobCanceledError) {
+      await markJobCanceled(job, error.stage, error);
+      return;
+    }
+
     const failedStage =
       jobName === "transcribe" ? "transcribe" : jobName === "analyze" ? "analyze" : "regenerate";
     await markJobFailed(job, failedStage, error);
 
-    if (jobName === "transcribe" || jobName === "analyze") {
+    if (jobName === "transcribe" || jobName === "analyze" || jobName === "regenerate") {
       const meeting = await fetchMeeting(job.meeting_id, job.user_id);
       if (meeting) {
         await updateMeetingStatus(meeting, "failed", {
           latest_ai_error: error instanceof Error ? error.message : "AI processing failed.",
+          findings_generation_status: jobName !== "transcribe" ? "failed" : undefined,
+          findings_fallback_reason:
+            jobName !== "transcribe"
+              ? error instanceof Error
+                ? error.message
+                : "AI processing failed."
+              : undefined,
         });
       }
     }

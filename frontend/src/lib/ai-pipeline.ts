@@ -25,11 +25,15 @@ import {
   transcribeWithDeepgramResult,
 } from "@/lib/deepgram";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { getMeetingSurfaceState } from "@/lib/workspace-status";
 import { generateMeetingFindings } from "@/lib/workspace-ai";
 import type {
   AiJobRecord,
   AiJobStage,
   AiStatusSnapshot,
+  CaptureSessionStatus,
+  FindingsGenerationMode,
+  FindingsGenerationStatus,
   MeetingArtifactRecord,
   MeetingArtifactType,
   MeetingAssetKind,
@@ -60,6 +64,30 @@ type QueueArtifactRegenerationArgs = {
 };
 
 const ensuredBuckets = new Set<string>();
+
+function toFindingsGenerationMode(value: unknown): FindingsGenerationMode | null {
+  return value === "openai_primary" || value === "fallback_local" ? value : null;
+}
+
+function toFindingsGenerationStatus(value: unknown): FindingsGenerationStatus | null {
+  return value === "full_success" || value === "degraded_success" || value === "failed"
+    ? value
+    : null;
+}
+
+function toCaptureSessionStatus(value: unknown): CaptureSessionStatus | null {
+  return value === "preparing" ||
+    value === "recording" ||
+    value === "ending" ||
+    value === "sealed" ||
+    value === "materializing_audio" ||
+    value === "queued_for_transcription" ||
+    value === "cancel_requested" ||
+    value === "canceled" ||
+    value === "failed"
+    ? value
+    : null;
+}
 
 type TranscriptMaterializationResult = {
   transcriptText: string;
@@ -213,10 +241,13 @@ async function updateMeetingStatus(
     .update({
       status,
       ended_at:
+        status === "finalizing_upload" ||
         status === "queued" ||
         status === "transcribing" ||
         status === "analyzing" ||
         status === "ready" ||
+        status === "cancel_requested" ||
+        status === "canceled" ||
         status === "failed" ||
         status === "partial_success"
           ? new Date().toISOString()
@@ -467,6 +498,9 @@ async function upsertMeetingFindings(
       follow_ups_json: findings.followUps,
       email_draft: findings.emailDraft,
       source_model: findings.sourceModel,
+      generation_mode: findings.generationMode,
+      generation_status: findings.generationStatus,
+      fallback_reason: findings.fallbackReason,
     },
     {
       onConflict: "meeting_id",
@@ -939,6 +973,10 @@ async function runRegenerationJob(
     followUps: nextFindings.follow_ups_json ?? regenerated.followUps,
     emailDraft: nextFindings.email_draft ?? regenerated.emailDraft,
     sourceModel: nextSourceModel,
+    generationMode: nextFindings.generation_mode ?? findings?.generation_mode ?? "openai_primary",
+    generationStatus:
+      nextFindings.generation_status ?? findings?.generation_status ?? "full_success",
+    fallbackReason: nextFindings.fallback_reason ?? findings?.fallback_reason ?? null,
   });
 
   if (job.artifact_type === "summary") {
@@ -1426,11 +1464,13 @@ export async function loadAiStatusSnapshot(meetingId: string, userId: string) {
   ]);
 
   const pendingStatuses: WebMeetingRecord["status"][] = [
+    "finalizing_upload",
     "queued",
     "transcribing",
     "transcript_ready",
     "analyzing",
     "processing",
+    "cancel_requested",
   ];
   const jobMetadata =
     latestJob?.provider_metadata && typeof latestJob.provider_metadata === "object"
@@ -1452,7 +1492,9 @@ export async function loadAiStatusSnapshot(meetingId: string, userId: string) {
       ? meeting.session_metadata
       : {};
   const phase =
-    meeting.status === "failed" || latestJob?.status === "failed"
+    meeting.status === "canceled" || latestJob?.status === "canceled"
+      ? "canceled"
+      : meeting.status === "failed" || latestJob?.status === "failed"
       ? "failed"
       : meeting.status === "ready" || meeting.status === "partial_success"
         ? "ready"
@@ -1462,11 +1504,63 @@ export async function loadAiStatusSnapshot(meetingId: string, userId: string) {
             ? "analyzing"
             : meeting.status === "transcribing" || meeting.status === "processing"
               ? "transcribing"
-              : "queued";
+            : "queued";
+  const findingsGenerationMode = toFindingsGenerationMode(meetingMetadata.findings_generation_mode);
+  const findingsGenerationStatus = toFindingsGenerationStatus(
+    meetingMetadata.findings_generation_status
+  );
+  const findingsFallbackReason =
+    typeof meetingMetadata.findings_fallback_reason === "string"
+      ? meetingMetadata.findings_fallback_reason
+      : null;
+  const captureStatus = toCaptureSessionStatus(meetingMetadata.capture_state);
+  const cancelable = [
+    "finalizing_upload",
+    "queued",
+    "transcribing",
+    "transcript_ready",
+    "analyzing",
+  ].includes(meeting.status);
+  const surfaceState = getMeetingSurfaceState({
+    meeting,
+    findings: null,
+    aiStatus: {
+      meetingId,
+      meetingStatus: meeting.status,
+      captureStatus,
+      latestJob,
+      artifacts,
+      transcriptAsset,
+      rawAudioAsset,
+      phase,
+      transcriptReadyAt:
+        typeof meetingMetadata.transcript_ready_at === "string"
+          ? meetingMetadata.transcript_ready_at
+          : typeof jobMetadata.transcriptReadyAt === "string"
+            ? jobMetadata.transcriptReadyAt
+            : null,
+      findingsReadyAt:
+        typeof meetingMetadata.findings_ready_at === "string"
+          ? meetingMetadata.findings_ready_at
+          : typeof jobMetadata.findingsReadyAt === "string"
+            ? jobMetadata.findingsReadyAt
+            : null,
+      timings,
+      latestError,
+      findingsGenerationMode,
+      findingsGenerationStatus,
+      findingsFallbackReason,
+      surfaceState: "processing",
+      pending: pendingStatuses.includes(meeting.status),
+      cancelable,
+      temporaryTranscriptReady: Boolean(transcriptAsset?.expires_at),
+    },
+  });
 
   return {
     meetingId,
     meetingStatus: meeting.status,
+    captureStatus,
     latestJob,
     artifacts,
     transcriptAsset,
@@ -1486,7 +1580,13 @@ export async function loadAiStatusSnapshot(meetingId: string, userId: string) {
           : null,
     timings,
     latestError,
+    findingsGenerationMode,
+    findingsGenerationStatus,
+    findingsFallbackReason,
+    surfaceState,
     pending: pendingStatuses.includes(meeting.status),
+    cancelable,
+    temporaryTranscriptReady: Boolean(transcriptAsset?.expires_at),
   } satisfies AiStatusSnapshot;
 }
 
@@ -1494,6 +1594,31 @@ export function getTranscriptAvailabilityFromAsset(
   transcriptAsset: MeetingAssetRecord | null,
   meeting?: WebMeetingRecord | null
 ): TranscriptAvailability {
+  if (
+    !transcriptAsset &&
+    meeting &&
+    [
+      "capturing",
+      "finalizing_upload",
+      "queued",
+      "transcribing",
+      "processing",
+      "transcript_ready",
+      "analyzing",
+      "cancel_requested",
+    ].includes(meeting.status)
+  ) {
+    return {
+      status: "not_ready",
+      downloadEnabled: false,
+      message:
+        meeting.status === "cancel_requested"
+          ? "Transcript availability is being resolved while cancellation completes."
+          : "Transcript is still being prepared for this meeting.",
+      expiresAt: null,
+    };
+  }
+
   if (meeting?.origin_platform === "desktop" && meeting?.transcript_storage === "local_only") {
     return {
       status: "local_only",
@@ -1514,6 +1639,16 @@ export function getTranscriptAvailabilityFromAsset(
   }
 
   if (!transcriptAsset?.expires_at) {
+    if (meeting?.status === "canceled") {
+      return {
+        status: "disabled",
+        downloadEnabled: false,
+        message:
+          "Processing was canceled before a downloadable transcript was materialized.",
+        expiresAt: null,
+      };
+    }
+
     return {
       status: "disabled",
       downloadEnabled: false,
@@ -1523,12 +1658,28 @@ export function getTranscriptAvailabilityFromAsset(
     };
   }
 
+  if (
+    transcriptAsset.deleted_at ||
+    transcriptAsset.deletion_status === "deleted" ||
+    transcriptAsset.status === "deleted"
+  ) {
+    return {
+      status: "deleted",
+      downloadEnabled: false,
+      message:
+        "The temporary transcript has already been deleted by the retention policy. Findings remain permanently available.",
+      expiresAt: transcriptAsset.expires_at,
+    };
+  }
+
   if (new Date(transcriptAsset.expires_at).getTime() <= Date.now()) {
     return {
       status: "expired",
       downloadEnabled: false,
       message:
-        "The temporary transcript is no longer available. Findings remain permanently available.",
+        transcriptAsset.deletion_status === "failed"
+          ? "The temporary transcript expired and access is blocked while cleanup is reconciled. Findings remain permanently available."
+          : "The temporary transcript is no longer available. Findings remain permanently available.",
       expiresAt: transcriptAsset.expires_at,
     };
   }
