@@ -36,7 +36,7 @@ Docker starts only:
 
 1. Copy `frontend/.env.local.example` to `frontend/.env.local`.
 2. Copy `backend/.env.local.example` to `backend/.env.local`.
-3. Optionally copy `.env.local.stack.example` to `.env.local.stack` if you want to override local ports.
+3. Optionally copy `local-stack.example.env` to `.env.local.stack` if you want to override local ports.
 4. Fill in the required Supabase and provider secrets.
 5. Start Docker Desktop.
 
