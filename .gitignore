@@ -63,3 +63,12 @@ next-env.d.ts
 generate_history.js
 git_commit_history.md
 local-stack-access.txt
+dev-check.log
+webpack-dev.log
+tmp_template_export.pdf
+
+# internal or sensitive project documentation
+docs/
+
+# local backend helper state
+backend/supabase/.temp/
