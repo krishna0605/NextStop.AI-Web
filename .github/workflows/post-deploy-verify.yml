@@ -145,6 +145,9 @@ jobs:
         shell: bash
         env:
           MANUAL_RESULTS_JSON: ${{ github.event_name == 'workflow_dispatch' && inputs.hosted_verification_results_json || '' }}
+          READINESS_RESULT: ${{ needs.readiness-check.result }}
+          BACKEND_RESULT: ${{ needs.backend-health.result }}
+          PREVIEW_RESULT: ${{ needs.preview-smoke.result }}
         run: |
           node <<'NODE'
           const fs = require("fs");
@@ -238,10 +241,6 @@ jobs:
             `- Hosted verification status: ${payload.status}\n- Hosted verification source: ${payload.source}\n`
           );
           NODE
-        env:
-          READINESS_RESULT: ${{ needs.readiness-check.result }}
-          BACKEND_RESULT: ${{ needs.backend-health.result }}
-          PREVIEW_RESULT: ${{ needs.preview-smoke.result }}
 
       - name: Upload hosted verification artifact
         uses: actions/upload-artifact@v4
