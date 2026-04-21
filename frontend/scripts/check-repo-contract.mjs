@@ -11,8 +11,9 @@ const repoRoot = path.resolve(scriptDir, "..", "..");
 
 const requiredFiles = [
   ".env.example",
-  "docs/production-runbook.md",
-  "docs/production-readiness-report.md",
+  "README.md",
+  "frontend/.env.vercel.example",
+  "backend/.env.railway.example",
 ];
 
 const forbiddenTrackedPatterns = [
