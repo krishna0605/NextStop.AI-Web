@@ -1,4 +1,8 @@
-import { printServiceSummary, runHealthChecks } from "./local-stack-lib.mjs";
+import {
+  printServiceSummary,
+  runHealthChecks,
+  writeLocalAccessSummary,
+} from "./local-stack-lib.mjs";
 
 const args = new Set(process.argv.slice(2));
 const includeObservability = args.has("--observability");
@@ -12,6 +16,7 @@ const result = await runHealthChecks({
   timeoutMs,
 });
 
+await writeLocalAccessSummary(result, includeObservability);
 printServiceSummary(result, includeObservability);
 
 if (!result.ok) {

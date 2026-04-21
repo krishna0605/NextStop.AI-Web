@@ -62,3 +62,4 @@ next-env.d.ts
 # local helper artifacts
 generate_history.js
 git_commit_history.md
+local-stack-access.txt

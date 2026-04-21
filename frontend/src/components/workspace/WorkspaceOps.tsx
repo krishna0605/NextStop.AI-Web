@@ -112,7 +112,39 @@ function verificationStatusLabel(
   }
 }
 
+function formatOpaqueId(value: string) {
+  return value.slice(0, 8);
+}
+
 export function WorkspaceOps({ data }: { data: OpsReadinessData }) {
+  const observabilityLinks = [
+    {
+      label: "Open Grafana Overview",
+      href: data.observabilityLinks.grafanaOverviewUrl,
+      description: "Metrics, dashboards, and alert state in Grafana.",
+    },
+    {
+      label: "Open Grafana Logs",
+      href: data.observabilityLinks.grafanaLogsUrl,
+      description: "Structured backend, worker, and cleanup logs in Loki.",
+    },
+    {
+      label: "Open Grafana Traces",
+      href: data.observabilityLinks.grafanaTracesUrl,
+      description: "Distributed traces routed through Tempo.",
+    },
+    {
+      label: "Open Sentry Issues",
+      href: data.observabilityLinks.sentryIssuesUrl,
+      description: "Frontend and backend issue workflows in Sentry.",
+    },
+    {
+      label: "Open Synthetic Monitoring",
+      href: data.observabilityLinks.syntheticMonitoringUrl,
+      description: "Production canaries and uptime verification.",
+    },
+  ].filter((item): item is { label: string; href: string; description: string } => Boolean(item.href));
+
   return (
     <div className="space-y-6">
       <motion.section
@@ -125,9 +157,9 @@ export function WorkspaceOps({ data }: { data: OpsReadinessData }) {
             <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Operations</p>
             <h1 className="mt-1 text-3xl font-bold text-white">Production readiness</h1>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-zinc-400">
-              This internal surface summarizes runtime ownership, AI core health, recent failures,
-              and environment boundaries so you can understand whether the product is healthy in a
-              few seconds.
+              This internal surface is intentionally summary-only. It exposes launch posture,
+              worker health, cleanup freshness, and high-signal counts, while raw logs, traces,
+              and stack traces stay in separately authenticated observability tools.
             </p>
           </div>
 
@@ -325,61 +357,98 @@ export function WorkspaceOps({ data }: { data: OpsReadinessData }) {
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6">
-          <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Recent AI failures</p>
-          <h2 className="mt-1 text-xl font-semibold text-white">Jobs needing attention</h2>
-          <div className="mt-5 space-y-3">
-            {data.recentAiFailures.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-white/10 bg-black/10 px-4 py-5 text-sm text-zinc-500">
-                No recent failed AI jobs were found for this workspace.
-              </div>
-            ) : (
-              data.recentAiFailures.map((item) => (
-                <div
-                  key={item.id}
-                  className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="font-medium text-white">
-                      {item.jobType.replace(/_/g, " ")} · {item.stage.replace(/_/g, " ")}
-                    </span>
-                    <WorkspaceDateText value={item.createdAt} className="text-red-200/70" />
-                  </div>
-                  <p className="mt-2 leading-6">{item.error}</p>
-                  <p className="mt-2 text-xs uppercase tracking-[0.16em] text-red-200/70">
-                    Meeting {item.meetingId.slice(0, 8)} · {item.executionMode ?? "unknown mode"}
-                  </p>
+          <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Operational summaries</p>
+          <h2 className="mt-1 text-xl font-semibold text-white">Recent incident counts</h2>
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">AI failures</p>
+              <p className="mt-2 text-2xl font-semibold text-white">{data.recentAiFailures.length}</p>
+              <p className="mt-1 text-sm text-zinc-400">
+                {data.recentAiFailures[0]?.createdAt ? (
+                  <>
+                    Latest <WorkspaceDateText value={data.recentAiFailures[0].createdAt} />
+                  </>
+                ) : (
+                  "No failed AI jobs in the current summary window."
+                )}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">
+                Degraded meetings
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-white">
+                {data.recentDegradedMeetings.length}
+              </p>
+              <p className="mt-1 text-sm text-zinc-400">
+                {data.recentDegradedMeetings[0]?.updatedAt ? (
+                  <>
+                    Latest <WorkspaceDateText value={data.recentDegradedMeetings[0].updatedAt} />
+                  </>
+                ) : (
+                  "No degraded meetings in the current summary window."
+                )}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+              <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">Export failures</p>
+              <p className="mt-2 text-2xl font-semibold text-white">
+                {data.recentExportFailures.length}
+              </p>
+              <p className="mt-1 text-sm text-zinc-400">
+                {data.recentExportFailures[0]?.createdAt ? (
+                  <>
+                    Latest <WorkspaceDateText value={data.recentExportFailures[0].createdAt} />
+                  </>
+                ) : (
+                  "No failed exports in the current summary window."
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 space-y-3">
+            {data.recentAiFailures.slice(0, 3).map((item) => (
+              <div
+                key={item.id}
+                className="rounded-2xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-medium text-white">
+                    {item.jobType.replace(/_/g, " ")} · {item.stage.replace(/_/g, " ")}
+                  </span>
+                  <WorkspaceDateText value={item.createdAt} className="text-red-200/70" />
                 </div>
-              ))
-            )}
+                <p className="mt-2 text-xs uppercase tracking-[0.16em] text-red-200/70">
+                  Meeting {formatOpaqueId(item.meetingId)} · {item.executionMode ?? "unknown mode"}
+                </p>
+              </div>
+            ))}
           </div>
         </div>
 
         <div className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6">
-          <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Recent degraded meetings</p>
-          <h2 className="mt-1 text-xl font-semibold text-white">Fallback findings visibility</h2>
+          <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Safe investigation links</p>
+          <h2 className="mt-1 text-xl font-semibold text-white">Open the external tools</h2>
           <div className="mt-5 space-y-3">
-            {data.recentDegradedMeetings.length === 0 ? (
+            {observabilityLinks.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-white/10 bg-black/10 px-4 py-5 text-sm text-zinc-500">
-                No recent degraded meetings were found for this workspace.
+                Observability links are not configured yet. Add the Grafana and Sentry URLs in the deployment environment before using this console in production.
               </div>
             ) : (
-              data.recentDegradedMeetings.map((item) => (
-                <div
-                  key={`${item.meetingId}-${item.updatedAt ?? "latest"}`}
-                  className="rounded-2xl border border-amber-300/20 bg-amber-400/10 px-4 py-3 text-sm text-amber-50"
+              observabilityLinks.map((item) => (
+                <a
+                  key={item.label}
+                  href={item.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-zinc-300 transition hover:border-white/20 hover:text-white"
                 >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="font-medium text-white">{item.title}</span>
-                    <WorkspaceDateText value={item.updatedAt} className="text-amber-100/70" />
+                  <div className="flex items-center gap-2 font-medium text-white">
+                    <ExternalLink className="h-4 w-4" />
+                    {item.label}
                   </div>
-                  <p className="mt-2 leading-6">
-                    {item.generationMode.replace(/_/g, " ")} · {item.generationStatus.replace(/_/g, " ")}
-                  </p>
-                  <p className="mt-2 text-xs uppercase tracking-[0.16em] text-amber-100/70">
-                    Meeting {item.meetingId.slice(0, 8)}
-                    {item.fallbackReason ? ` · ${item.fallbackReason}` : ""}
-                  </p>
-                </div>
+                  <p className="mt-2 leading-6 text-zinc-400">{item.description}</p>
+                </a>
               ))
             )}
           </div>
@@ -612,7 +681,7 @@ export function WorkspaceOps({ data }: { data: OpsReadinessData }) {
 
         <div className="rounded-[2rem] border border-white/10 bg-zinc-950/70 p-6">
           <p className="text-sm uppercase tracking-[0.22em] text-zinc-500">Recent export failures</p>
-          <h2 className="mt-1 text-xl font-semibold text-white">Exports needing retry</h2>
+          <h2 className="mt-1 text-xl font-semibold text-white">Retry counts without payload details</h2>
           <div className="mt-5 space-y-3">
             {data.recentExportFailures.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-white/10 bg-black/10 px-4 py-5 text-sm text-zinc-500">
@@ -630,12 +699,9 @@ export function WorkspaceOps({ data }: { data: OpsReadinessData }) {
                     </span>
                     <WorkspaceDateText value={item.createdAt} className="text-amber-100/70" />
                   </div>
-                  <p className="mt-2 leading-6">
-                    {item.latestError ?? "Export failed without a stored error message."}
-                  </p>
                   <p className="mt-2 text-xs uppercase tracking-[0.16em] text-amber-100/70">
-                    Meeting {item.meetingId.slice(0, 8)}
-                    {item.destination ? ` · ${item.destination}` : ""}
+                    Meeting {formatOpaqueId(item.meetingId)}
+                    {item.destination ? " · destination configured" : ""}
                     {typeof item.durationMs === "number" ? ` · ${item.durationMs} ms` : ""}
                   </p>
                 </div>
@@ -662,7 +728,7 @@ export function WorkspaceOps({ data }: { data: OpsReadinessData }) {
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <p className="font-medium text-white">
-                      {session.meetingTitle ?? `Meeting ${session.meetingId.slice(0, 8)}`}
+                      Meeting {formatOpaqueId(session.meetingId)}
                     </p>
                     <p className="mt-1 text-zinc-400">
                       {session.status.replace(/_/g, " ")} · {session.totalChunksReceived} chunks ·{" "}
@@ -689,11 +755,6 @@ export function WorkspaceOps({ data }: { data: OpsReadinessData }) {
                 {session.lastChunkReceivedAt ? (
                   <p className="mt-2 text-zinc-500">
                     Last chunk <WorkspaceDateText value={session.lastChunkReceivedAt} />
-                  </p>
-                ) : null}
-                {session.error ? (
-                  <p className="mt-2 rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-red-100">
-                    {session.error}
                   </p>
                 ) : null}
               </div>

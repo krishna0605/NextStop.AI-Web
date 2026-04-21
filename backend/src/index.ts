@@ -1,3 +1,7 @@
+import { initObservability } from "./observability.js";
+
+initObservability("nextstop-ai-core");
+
 import "./server.js";
 import "./worker.js";
 

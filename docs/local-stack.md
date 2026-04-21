@@ -9,7 +9,7 @@ Use the Shakti-style local orchestration path when you want a single, project-aw
 - `.env.local.stack` is the optional root local stack override file for ports and local-only runtime toggles.
 - `docker-compose.local.yml` defines the stable local platform shape.
 - `docker-compose.local.dev.yml` adds hot reload, bind mounts, ports, and dev entrypoints.
-- `docker-compose.local.observability.yml` adds Prometheus and Grafana behind the optional `observability` profile.
+- `docker-compose.local.observability.yml` adds Prometheus, Grafana, Loki, Tempo, and Grafana Alloy behind the optional `observability` profile.
 - `backend/Dockerfile` remains production-only for Railway.
 - `backend/Dockerfile.local` and `frontend/Dockerfile.local` remain local-only images.
 
@@ -30,7 +30,7 @@ Docker starts only:
 - backend-worker
 - backend-cleanup
 - redis
-- optional Prometheus and Grafana
+- optional Prometheus, Grafana, Loki, Tempo, and Alloy
 
 ## First-time setup
 
@@ -42,9 +42,11 @@ Docker starts only:
 
 ## Commands
 
+- `npm run up:all` is the recommended full local startup. It stops any stale local stack, rebuilds images, starts the full stack, enables observability, waits for readiness, and writes `local-stack-access.txt`.
 - `npm run up` validates env and Docker, starts the local stack, waits for readiness, and prints a runtime summary.
+- `npm run up` also writes `local-stack-access.txt` with the local URLs and default local access details. That file is ignored by Git.
 - `npm run up:build` does the same but rebuilds images.
-- `npm run up:obs` starts the stack with Prometheus and Grafana.
+- `npm run up:obs` starts the stack with Prometheus, Grafana, Loki, Tempo, and Alloy.
 - `npm run up:build:obs` rebuilds and starts the stack with observability.
 - `npm run down` stops the local stack and removes orphans.
 - `npm run logs` tails local stack logs.
@@ -57,3 +59,7 @@ Docker starts only:
 - Redis: `localhost:${LOCAL_REDIS_PORT:-6379}`
 - Prometheus: `http://localhost:${LOCAL_PROMETHEUS_PORT:-9090}` when observability is enabled
 - Grafana: `http://localhost:${LOCAL_GRAFANA_PORT:-3002}` when observability is enabled
+- Loki: `http://localhost:${LOCAL_LOKI_PORT:-3100}` when observability is enabled
+- Tempo: `http://localhost:${LOCAL_TEMPO_PORT:-3200}` when observability is enabled
+- Alloy: `http://localhost:${LOCAL_ALLOY_PORT:-12345}` when observability is enabled
+- OTLP HTTP receiver: `http://localhost:${LOCAL_OTLP_HTTP_PORT:-4318}` when observability is enabled

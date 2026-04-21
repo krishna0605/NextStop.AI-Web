@@ -6,6 +6,7 @@ import {
   runCommand,
   runHealthChecks,
   validateLocalEnv,
+  writeLocalAccessSummary,
 } from "./local-stack-lib.mjs";
 
 const args = new Set(process.argv.slice(2));
@@ -61,6 +62,7 @@ const result = await runHealthChecks({
   timeoutMs: includeObservability ? 120_000 : 90_000,
 });
 
+await writeLocalAccessSummary(result, includeObservability);
 printServiceSummary(result, includeObservability);
 
 if (!result.ok) {

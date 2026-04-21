@@ -30,22 +30,26 @@ import {
 } from "@/lib/billing";
 import { createClient } from "@/lib/supabase-browser";
 
-const navItems = [
+const primaryNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/library", label: "Library", icon: FolderOpen },
   { href: "/dashboard/google", label: "Google", icon: Calendar },
   { href: "/dashboard/notion", label: "Notion", icon: NotebookTabs },
-  { href: "/dashboard/ops", label: "Ops", icon: Activity },
-  { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
+const opsNavItem = { href: "/dashboard/ops", label: "Ops", icon: Activity };
+const settingsNavItem = { href: "/dashboard/settings", label: "Settings", icon: Settings };
+const navItemsWithOps = [...primaryNavItems, opsNavItem, settingsNavItem];
+const navItemsWithoutOps = [...primaryNavItems, settingsNavItem];
 
 export function DashboardShell({
   user,
   profile,
+  canAccessOps,
   children,
 }: {
   user: User;
   profile: ProfileRecord | null;
+  canAccessOps: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -81,12 +85,13 @@ export function DashboardShell({
         : accessState === "active"
           ? PLAN_DETAILS[planCode].label
           : "Free";
+  const visibleNavItems = canAccessOps ? navItemsWithOps : navItemsWithoutOps;
 
   useEffect(() => {
-    for (const item of navItems) {
+    for (const item of visibleNavItems) {
       router.prefetch(item.href);
     }
-  }, [router]);
+  }, [router, visibleNavItems]);
 
   async function handleSignOut() {
     await supabase.auth.signOut();
@@ -115,7 +120,7 @@ export function DashboardShell({
 
           {/* Navigation */}
           <nav className="space-y-1 px-3 py-4">
-            {navItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const isActive =
                 pathname === item.href ||
                 (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`));

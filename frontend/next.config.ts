@@ -1,10 +1,13 @@
 import path from "node:path";
 
+import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
 const appOrigin = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "";
 const backendOrigin = process.env.NEXT_PUBLIC_BACKEND_API_URL?.replace(/\/$/, "") ?? "";
+const sentryDsn =
+  process.env.NEXT_PUBLIC_SENTRY_DSN?.trim() || process.env.SENTRY_DSN?.trim() || "";
 const connectSrc = ["'self'"];
 const isDevelopment = process.env.NODE_ENV === "development";
 
@@ -18,6 +21,14 @@ if (backendOrigin) {
 
 if (supabaseUrl) {
   connectSrc.push(supabaseUrl);
+}
+
+if (sentryDsn) {
+  try {
+    connectSrc.push(new URL(sentryDsn).origin);
+  } catch {
+    // Ignore malformed DSNs in local or unset environments.
+  }
 }
 
 const securityHeaders = [
@@ -83,4 +94,10 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  tunnelRoute: "/monitoring",
+  silent: true,
+});

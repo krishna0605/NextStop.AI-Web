@@ -1,3 +1,5 @@
+import { recordAiProviderCall, runWithTraceSpan } from "./observability.js";
+
 type FindingsPayload = {
   summaryShort: string;
   summaryFull: string;
@@ -115,69 +117,117 @@ async function openAiFindings(title: string, sourceText: string): Promise<Findin
     };
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+  const startedAt = Date.now();
+
+  return runWithTraceSpan(
+    "openai.generate_findings",
+    {
+      provider: "openai",
+      operation: "generate_findings",
     },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are the hidden NextStop.ai findings engine. Return strict JSON with keys summaryShort, summaryFull, executiveBullets, decisions, actionItems, risks, followUps, emailDraft. Keep each list concise, high-signal, and privacy-safe.",
-        },
-        {
-          role: "user",
-          content: `Meeting title: ${title}\n\nSession text:\n${sourceText}`,
-        },
-      ],
-    }),
-  });
+    async () => {
+      try {
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            temperature: 0.2,
+            response_format: { type: "json_object" },
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You are the hidden NextStop.ai findings engine. Return strict JSON with keys summaryShort, summaryFull, executiveBullets, decisions, actionItems, risks, followUps, emailDraft. Keep each list concise, high-signal, and privacy-safe.",
+              },
+              {
+                role: "user",
+                content: `Meeting title: ${title}\n\nSession text:\n${sourceText}`,
+              },
+            ],
+          }),
+        });
 
-  const payload = await response.json();
+        const payload = await response.json();
 
-  if (!response.ok) {
-    throw new Error(payload?.error?.message ?? "OpenAI findings generation failed.");
-  }
+        if (!response.ok) {
+          throw new Error(payload?.error?.message ?? "OpenAI findings generation failed.");
+        }
 
-  const content = payload?.choices?.[0]?.message?.content;
+        const content = payload?.choices?.[0]?.message?.content;
 
-  if (typeof content !== "string") {
-    throw new Error("OpenAI findings response did not contain JSON content.");
-  }
+        if (typeof content !== "string") {
+          throw new Error("OpenAI findings response did not contain JSON content.");
+        }
 
-  const parsed = JSON.parse(content) as Partial<FindingsPayload>;
-  const fallback = fallbackFindings(title, sourceText);
+        const parsed = JSON.parse(content) as Partial<FindingsPayload>;
+        const fallback = fallbackFindings(title, sourceText);
 
-  return {
-    summaryShort: typeof parsed.summaryShort === "string" ? parsed.summaryShort : fallback.summaryShort,
-    summaryFull: typeof parsed.summaryFull === "string" ? parsed.summaryFull : fallback.summaryFull,
-    executiveBullets: Array.isArray(parsed.executiveBullets)
-      ? trimList(parsed.executiveBullets.filter((item): item is string => typeof item === "string"), "No executive bullets returned.")
-      : fallback.executiveBullets,
-    decisions: Array.isArray(parsed.decisions)
-      ? trimList(parsed.decisions.filter((item): item is string => typeof item === "string"), "No explicit decisions were detected.")
-      : fallback.decisions,
-    actionItems: Array.isArray(parsed.actionItems)
-      ? trimList(parsed.actionItems.filter((item): item is string => typeof item === "string"), "No clear action items were returned.")
-      : fallback.actionItems,
-    risks: Array.isArray(parsed.risks)
-      ? trimList(parsed.risks.filter((item): item is string => typeof item === "string"), "No clear risks were returned.")
-      : fallback.risks,
-    followUps: Array.isArray(parsed.followUps)
-      ? trimList(parsed.followUps.filter((item): item is string => typeof item === "string"), "No follow-ups were returned.")
-      : fallback.followUps,
-    emailDraft: typeof parsed.emailDraft === "string" ? parsed.emailDraft : fallback.emailDraft,
-    sourceModel: "gpt-4o-mini",
-    generationMode: "openai_primary",
-    generationStatus: "full_success",
-    fallbackReason: null,
-  };
+        recordAiProviderCall({
+          provider: "openai",
+          operation: "generate_findings",
+          outcome: "success",
+          startedAt,
+        });
+
+        return {
+          summaryShort:
+            typeof parsed.summaryShort === "string" ? parsed.summaryShort : fallback.summaryShort,
+          summaryFull:
+            typeof parsed.summaryFull === "string" ? parsed.summaryFull : fallback.summaryFull,
+          executiveBullets: Array.isArray(parsed.executiveBullets)
+            ? trimList(
+                parsed.executiveBullets.filter(
+                  (item): item is string => typeof item === "string"
+                ),
+                "No executive bullets returned."
+              )
+            : fallback.executiveBullets,
+          decisions: Array.isArray(parsed.decisions)
+            ? trimList(
+                parsed.decisions.filter((item): item is string => typeof item === "string"),
+                "No explicit decisions were detected."
+              )
+            : fallback.decisions,
+          actionItems: Array.isArray(parsed.actionItems)
+            ? trimList(
+                parsed.actionItems.filter((item): item is string => typeof item === "string"),
+                "No clear action items were returned."
+              )
+            : fallback.actionItems,
+          risks: Array.isArray(parsed.risks)
+            ? trimList(
+                parsed.risks.filter((item): item is string => typeof item === "string"),
+                "No clear risks were returned."
+              )
+            : fallback.risks,
+          followUps: Array.isArray(parsed.followUps)
+            ? trimList(
+                parsed.followUps.filter((item): item is string => typeof item === "string"),
+                "No follow-ups were returned."
+              )
+            : fallback.followUps,
+          emailDraft:
+            typeof parsed.emailDraft === "string" ? parsed.emailDraft : fallback.emailDraft,
+          sourceModel: "gpt-4o-mini",
+          generationMode: "openai_primary",
+          generationStatus: "full_success",
+          fallbackReason: null,
+        };
+      } catch (error) {
+        recordAiProviderCall({
+          provider: "openai",
+          operation: "generate_findings",
+          outcome: "failed",
+          startedAt,
+        });
+        throw error;
+      }
+    }
+  );
 }
 
 export async function generateMeetingFindings(title: string, sourceText: string) {

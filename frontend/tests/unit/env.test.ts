@@ -1,7 +1,9 @@
 import {
+  canAccessOpsConsole,
   getAppUrl,
   getMissingEnvSummary,
   getNotionRedirectUri,
+  getObservabilityLinks,
   getRuntimeReadiness,
   getTranscriptStorageMode,
   isTranscriptDownloadEnabled,
@@ -23,6 +25,24 @@ describe("env readiness", () => {
     vi.stubEnv("APP_URL", "https://nextstop.ai");
 
     expect(getNotionRedirectUri()).toBe("https://nextstop.ai/api/workspace/notion/callback");
+  });
+
+  it("exposes configured observability links and operator access rules", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("OPS_ALLOWED_EMAILS", "ops@nextstop.ai");
+    vi.stubEnv("OPS_ALLOWED_DOMAINS", "nextstop.ai");
+    vi.stubEnv("GRAFANA_OVERVIEW_URL", "https://grafana.example.com/d/overview");
+    vi.stubEnv("SENTRY_ISSUES_URL", "https://sentry.example.com/issues/");
+
+    expect(canAccessOpsConsole("ops@nextstop.ai")).toBe(true);
+    expect(canAccessOpsConsole("engineer@nextstop.ai")).toBe(true);
+    expect(canAccessOpsConsole("user@example.com")).toBe(false);
+    expect(getObservabilityLinks().grafanaOverviewUrl).toBe(
+      "https://grafana.example.com/d/overview"
+    );
+    expect(getObservabilityLinks().sentryIssuesUrl).toBe(
+      "https://sentry.example.com/issues/"
+    );
   });
 
   it("defaults transcript storage to disabled in production", () => {

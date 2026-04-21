@@ -6,17 +6,16 @@ import { WorkspaceOps } from "@/components/workspace/WorkspaceOps";
 import { smokeOpsReadinessData } from "@tests/fixtures/workspace";
 
 describe("WorkspaceOps", () => {
-  it("renders worker health and recent failure summaries", () => {
+  it("renders worker health, safe summaries, and external observability links", () => {
     render(<WorkspaceOps data={smokeOpsReadinessData} />);
 
     expect(screen.getByText("Production readiness")).toBeInTheDocument();
     expect(screen.getByText("Degraded")).toBeInTheDocument();
     expect(screen.getByText("Healthy")).toBeInTheDocument();
-    expect(screen.getByText(/Deepgram returned an empty transcript/i)).toBeInTheDocument();
-    expect(screen.getByText(/PDF generation timed out/i)).toBeInTheDocument();
     expect(screen.getByText(/nextstop-ai-jobs/i)).toBeInTheDocument();
-    expect(screen.getByText(/Fallback findings visibility/i)).toBeInTheDocument();
-    expect(screen.getByText(/Go To Market Sync/i)).toBeInTheDocument();
+    expect(screen.getByText(/Operational summaries/i)).toBeInTheDocument();
+    expect(screen.getByText(/Open Grafana Overview/i)).toBeInTheDocument();
+    expect(screen.getByText(/Open Sentry Issues/i)).toBeInTheDocument();
     expect(screen.getByText(/Sensitive route protection/i)).toBeInTheDocument();
     expect(screen.getByText(/Rate-limit denials/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Hosted verification/i).length).toBeGreaterThan(0);

@@ -1,4 +1,5 @@
 import { createAdminClient } from "./supabase.js";
+import { captureException, initObservability, logEvent } from "./observability.js";
 import {
   recordCleanupFailure,
   recordCleanupRun,
@@ -28,6 +29,8 @@ if (!Number.isFinite(cleanupIntervalMs) || cleanupIntervalMs <= 0) {
 if (!Number.isFinite(cleanupBatchSize) || cleanupBatchSize <= 0) {
   throw new Error("CLEANUP_BATCH_SIZE must be a positive integer.");
 }
+
+initObservability("nextstop-ai-cleanup");
 
 async function queryExpiredAssets() {
   const admin = createAdminClient();
@@ -124,44 +127,65 @@ async function deleteExpiredAssets(expiredAssets: ExpiredMeetingAsset[]) {
 }
 
 async function runCleanupTick() {
-  const expiredAssets = await queryExpiredAssets();
-  recordCleanupRun(expiredAssets.length);
-
-  if (expiredAssets.length === 0) {
-    recordCleanupSuccess({
-      pendingExpiredAssetCount: 0,
-      deletedAudioAssetCount: 0,
-      deletedTranscriptAssetCount: 0,
-    });
-    console.info("[ai-core] Cleanup tick completed with no expired assets.");
-    return;
-  }
+  let pendingExpiredAssetCount = 0;
 
   try {
+    const expiredAssets = await queryExpiredAssets();
+    pendingExpiredAssetCount = expiredAssets.length;
+    recordCleanupRun(expiredAssets.length);
+
+    if (expiredAssets.length === 0) {
+      recordCleanupSuccess({
+        pendingExpiredAssetCount: 0,
+        deletedAudioAssetCount: 0,
+        deletedTranscriptAssetCount: 0,
+      });
+      logEvent("info", "cleanup_tick_completed", {
+        service: "nextstop-ai-cleanup",
+        expiredAssetCount: 0,
+        deletedAudioAssetCount: 0,
+        deletedTranscriptAssetCount: 0,
+      });
+      return;
+    }
+
     const deleted = await deleteExpiredAssets(expiredAssets);
     recordCleanupSuccess({
-      pendingExpiredAssetCount: Math.max(0, expiredAssets.length - deleted.deletedAudioAssetCount - deleted.deletedTranscriptAssetCount),
+      pendingExpiredAssetCount: Math.max(
+        0,
+        expiredAssets.length -
+          deleted.deletedAudioAssetCount -
+          deleted.deletedTranscriptAssetCount
+      ),
       deletedAudioAssetCount: deleted.deletedAudioAssetCount,
       deletedTranscriptAssetCount: deleted.deletedTranscriptAssetCount,
     });
-    console.info("[ai-core] Cleanup tick completed", {
+    logEvent("info", "cleanup_tick_completed", {
+      service: "nextstop-ai-cleanup",
       expiredAssetCount: expiredAssets.length,
       deletedAudioAssetCount: deleted.deletedAudioAssetCount,
       deletedTranscriptAssetCount: deleted.deletedTranscriptAssetCount,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Cleanup tick failed.";
-    recordCleanupFailure(message, expiredAssets.length);
-    console.error("[ai-core] Cleanup tick failed", {
-      expiredAssetCount: expiredAssets.length,
+    recordCleanupFailure(message, pendingExpiredAssetCount);
+    captureException(error, {
+      service: "nextstop-ai-cleanup",
+      stage: "cleanup",
+    });
+    logEvent("error", "cleanup_tick_failed", {
+      service: "nextstop-ai-cleanup",
+      expiredAssetCount: pendingExpiredAssetCount,
       message,
     });
   }
 }
 
-console.log(
-  `[ai-core] Cleanup worker started. Interval=${cleanupIntervalMs}ms. BatchSize=${cleanupBatchSize}.`
-);
+logEvent("info", "cleanup_worker_started", {
+  service: "nextstop-ai-cleanup",
+  cleanupIntervalMs,
+  cleanupBatchSize,
+});
 
 void runCleanupTick();
 
@@ -171,7 +195,10 @@ const timer = setInterval(() => {
 
 function shutdown(signal: string) {
   clearInterval(timer);
-  console.log(`[ai-core] Cleanup worker shutting down after ${signal}.`);
+  logEvent("info", "cleanup_worker_shutdown", {
+    service: "nextstop-ai-cleanup",
+    signal,
+  });
   process.exit(0);
 }
 

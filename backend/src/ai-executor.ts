@@ -7,6 +7,12 @@ import {
   parseCanonicalArtifact,
 } from "./meeting-artifacts.js";
 import { getAiQueue } from "./queue.js";
+import {
+  captureException,
+  logEvent,
+  recordAiJobOutcome,
+  runWithTraceSpan,
+} from "./observability.js";
 import { createAdminClient } from "./supabase.js";
 import { transcribeWithDeepgramResult, type DeepgramParagraph } from "./deepgram.js";
 import { fallbackFindings, generateMeetingFindings } from "./workspace-ai.js";
@@ -1429,49 +1435,89 @@ export async function executeQueuedJob(jobName: string, payload: JobPayload) {
     throw new Error("AI job not found.");
   }
 
-  try {
-    if (jobName === "transcribe") {
-      await runTranscribe(job);
-      return;
-    }
+  const startedAt = Date.now();
 
-    if (jobName === "analyze") {
-      await runAnalyze(job);
-      return;
-    }
+  return runWithTraceSpan(
+    `ai_job.${jobName}`,
+    {
+      service: "nextstop-ai-worker",
+      job_name: jobName,
+      job_id: job.id,
+      meeting_id: job.meeting_id,
+      user_id: job.user_id,
+      capture_session_id: null,
+    },
+    async () => {
+      try {
+        if (jobName === "transcribe") {
+          await runTranscribe(job);
+          recordAiJobOutcome({ jobName, outcome: "success", startedAt });
+          return;
+        }
 
-    if (jobName === "regenerate") {
-      await runRegenerate(job);
-      return;
-    }
+        if (jobName === "analyze") {
+          await runAnalyze(job);
+          recordAiJobOutcome({ jobName, outcome: "success", startedAt });
+          return;
+        }
 
-    throw new Error(`Unsupported AI job type: ${jobName}`);
-  } catch (error) {
-    if (error instanceof AiJobCanceledError) {
-      await markJobCanceled(job, error.stage, error);
-      return;
-    }
+        if (jobName === "regenerate") {
+          await runRegenerate(job);
+          recordAiJobOutcome({ jobName, outcome: "success", startedAt });
+          return;
+        }
 
-    const failedStage =
-      jobName === "transcribe" ? "transcribe" : jobName === "analyze" ? "analyze" : "regenerate";
-    await markJobFailed(job, failedStage, error);
+        throw new Error(`Unsupported AI job type: ${jobName}`);
+      } catch (error) {
+        if (error instanceof AiJobCanceledError) {
+          await markJobCanceled(job, error.stage, error);
+          recordAiJobOutcome({ jobName, outcome: "canceled", startedAt });
+          logEvent("warn", "ai_job_canceled", {
+            service: "nextstop-ai-worker",
+            jobName,
+            jobId: job.id,
+            meetingId: job.meeting_id,
+            stage: error.stage,
+            message: error.message,
+          });
+          return;
+        }
 
-    if (jobName === "transcribe" || jobName === "analyze" || jobName === "regenerate") {
-      const meeting = await fetchMeeting(job.meeting_id, job.user_id);
-      if (meeting) {
-        await updateMeetingStatus(meeting, "failed", {
-          latest_ai_error: error instanceof Error ? error.message : "AI processing failed.",
-          findings_generation_status: jobName !== "transcribe" ? "failed" : undefined,
-          findings_fallback_reason:
-            jobName !== "transcribe"
-              ? error instanceof Error
-                ? error.message
-                : "AI processing failed."
-              : undefined,
+        const failedStage =
+          jobName === "transcribe"
+            ? "transcribe"
+            : jobName === "analyze"
+              ? "analyze"
+              : "regenerate";
+        await markJobFailed(job, failedStage, error);
+        recordAiJobOutcome({ jobName, outcome: "failed", startedAt });
+        captureException(error, {
+          service: "nextstop-ai-worker",
+          jobName,
+          jobId: job.id,
+          meetingId: job.meeting_id,
+          userId: job.user_id,
+          stage: failedStage,
         });
+
+        if (jobName === "transcribe" || jobName === "analyze" || jobName === "regenerate") {
+          const meeting = await fetchMeeting(job.meeting_id, job.user_id);
+          if (meeting) {
+            await updateMeetingStatus(meeting, "failed", {
+              latest_ai_error: error instanceof Error ? error.message : "AI processing failed.",
+              findings_generation_status: jobName !== "transcribe" ? "failed" : undefined,
+              findings_fallback_reason:
+                jobName !== "transcribe"
+                  ? error instanceof Error
+                    ? error.message
+                    : "AI processing failed."
+                  : undefined,
+            });
+          }
+        }
+
+        throw error;
       }
     }
-
-    throw error;
-  }
+  );
 }

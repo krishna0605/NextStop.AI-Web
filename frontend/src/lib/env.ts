@@ -2,10 +2,24 @@ import "server-only";
 
 export type TranscriptStorageMode = "memory" | "disabled";
 export type AiPipelineMode = "railway_remote" | "inline_legacy";
+export interface ObservabilityLinks {
+  grafanaOverviewUrl: string | null;
+  grafanaLogsUrl: string | null;
+  grafanaTracesUrl: string | null;
+  sentryIssuesUrl: string | null;
+  syntheticMonitoringUrl: string | null;
+}
 
 function readEnv(name: string) {
   const value = process.env[name]?.trim();
   return value && value.length > 0 ? value : null;
+}
+
+function readCsvEnv(name: string) {
+  return (readEnv(name) ?? "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 export function isProductionRuntime() {
@@ -35,6 +49,44 @@ export function getAiCoreApiUrl() {
 
 export function getBackendApiUrl() {
   return readEnv("NEXT_PUBLIC_BACKEND_URL");
+}
+
+export function getObservabilityLinks(): ObservabilityLinks {
+  return {
+    grafanaOverviewUrl: readEnv("GRAFANA_OVERVIEW_URL"),
+    grafanaLogsUrl: readEnv("GRAFANA_LOGS_URL"),
+    grafanaTracesUrl: readEnv("GRAFANA_TRACES_URL"),
+    sentryIssuesUrl: readEnv("SENTRY_ISSUES_URL"),
+    syntheticMonitoringUrl: readEnv("GRAFANA_SYNTHETIC_MONITORING_URL"),
+  };
+}
+
+export function canAccessOpsConsole(email: string | null | undefined) {
+  const allowedEmails = readCsvEnv("OPS_ALLOWED_EMAILS");
+  const allowedDomains = readCsvEnv("OPS_ALLOWED_DOMAINS");
+
+  if (allowedEmails.length === 0 && allowedDomains.length === 0) {
+    return !isProductionRuntime();
+  }
+
+  const normalizedEmail = email?.trim().toLowerCase() ?? null;
+
+  if (!normalizedEmail) {
+    return false;
+  }
+
+  if (allowedEmails.includes(normalizedEmail)) {
+    return true;
+  }
+
+  const atIndex = normalizedEmail.lastIndexOf("@");
+
+  if (atIndex === -1) {
+    return false;
+  }
+
+  const domain = normalizedEmail.slice(atIndex + 1);
+  return allowedDomains.includes(domain);
 }
 
 export function getAiCoreSharedSecret() {

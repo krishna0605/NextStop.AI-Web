@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 import { notFound, redirect } from "next/navigation";
 
+import { canAccessOpsConsole } from "@/lib/env";
 import { resolveAccessContext } from "@/lib/billing-server";
 import { createClient } from "@/lib/supabase-server";
 import {
@@ -38,6 +39,16 @@ const getWorkspaceAccessContext = cache(async () => {
 
 export async function requireWorkspaceAccess() {
   return getWorkspaceAccessContext();
+}
+
+export async function requireOperatorWorkspaceAccess() {
+  const context = await requireWorkspaceAccess();
+
+  if (!canAccessOpsConsole(context.user.email)) {
+    redirect("/dashboard");
+  }
+
+  return context;
 }
 
 export async function requireDashboardHomeData() {
@@ -89,7 +100,7 @@ export async function requireMeetingDetail(meetingId: string) {
 }
 
 export async function requireOpsReadinessData() {
-  const context = await requireWorkspaceAccess();
+  const context = await requireOperatorWorkspaceAccess();
   const data = await loadOpsReadinessData(context.supabase, context.user.id);
 
   return {

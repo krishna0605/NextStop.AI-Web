@@ -570,6 +570,14 @@ export const smokeOpsReadinessData: OpsReadinessData = {
     ],
   },
   lastDeployHint: "Use the post-deploy verification workflow summary to confirm the latest Vercel and Railway release.",
+  observabilityLinks: {
+    grafanaOverviewUrl: "https://grafana.example.com/d/overview",
+    grafanaLogsUrl: "https://grafana.example.com/explore?logs=1",
+    grafanaTracesUrl: "https://grafana.example.com/explore?traces=1",
+    sentryIssuesUrl: "https://sentry.example.com/issues/",
+    syntheticMonitoringUrl:
+      "https://grafana.example.com/a/grafana-synthetic-monitoring-app/checks",
+  },
 };
 
 export const smokeDashboardHomeData: DashboardHomeData = {

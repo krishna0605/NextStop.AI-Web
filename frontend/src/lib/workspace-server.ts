@@ -11,6 +11,7 @@ import {
   getAiPipelineMode,
   getGoogleOAuthRefreshSupport,
   getHuggingFaceConfigured,
+  getObservabilityLinks,
   getRawAssetRetentionHours,
   loadAiCoreHealthSnapshot,
   getRuntimeReadiness,
@@ -1296,6 +1297,7 @@ export async function loadOpsReadinessData(
       captureRuntime,
       lastDeployHint:
         "Use the post-deploy verification workflow summary to confirm the latest Vercel and Railway release.",
+      observabilityLinks: getObservabilityLinks(),
     };
   });
 }

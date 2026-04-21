@@ -500,6 +500,7 @@ export interface OpsReadinessData {
   launchCertification: LaunchCertificationSnapshot | null;
   captureRuntime: CaptureRuntimeSnapshot;
   lastDeployHint: string;
+  observabilityLinks: import("./env").ObservabilityLinks;
 }
 
 export const MEETING_SOURCE_LABELS: Record<MeetingSourceType, string> = {

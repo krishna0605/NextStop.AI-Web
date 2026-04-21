@@ -17,12 +17,17 @@ export const observabilityComposeFile = "docker-compose.local.observability.yml"
 export const frontendEnvFile = path.join(repoRoot, "frontend", ".env.local");
 export const backendEnvFile = path.join(repoRoot, "backend", ".env.local");
 export const stackEnvFile = path.join(repoRoot, ".env.local.stack");
+export const localAccessFile = path.join(repoRoot, "local-stack-access.txt");
 const defaultStackEnv = {
   LOCAL_FRONTEND_PORT: "3000",
   LOCAL_BACKEND_PORT: "8080",
   LOCAL_REDIS_PORT: "6379",
   LOCAL_PROMETHEUS_PORT: "9090",
   LOCAL_GRAFANA_PORT: "3002",
+  LOCAL_LOKI_PORT: "3100",
+  LOCAL_TEMPO_PORT: "3200",
+  LOCAL_ALLOY_PORT: "12345",
+  LOCAL_OTLP_HTTP_PORT: "4318",
 };
 
 export function composeArgs(includeObservability = false) {
@@ -437,6 +442,18 @@ export async function runHealthChecks(options = {}) {
         name: "grafana",
         url: `http://localhost:${stackEnv.LOCAL_GRAFANA_PORT}/api/health`,
       },
+      {
+        name: "loki",
+        url: `http://localhost:${stackEnv.LOCAL_LOKI_PORT}/ready`,
+      },
+      {
+        name: "tempo",
+        url: `http://localhost:${stackEnv.LOCAL_TEMPO_PORT}/ready`,
+      },
+      {
+        name: "alloy",
+        url: `http://localhost:${stackEnv.LOCAL_ALLOY_PORT}/-/ready`,
+      },
     ];
 
     for (const check of observabilityChecks) {
@@ -470,6 +487,65 @@ export async function runHealthChecks(options = {}) {
   };
 }
 
+function buildLocalAccessSummary(result, includeObservability = false) {
+  const stackEnv = result.stackEnv ?? defaultStackEnv;
+  const lines = [
+    "NextStop local stack access",
+    "==========================",
+    "",
+    "Core services",
+    "-------------",
+    `Frontend: http://localhost:${stackEnv.LOCAL_FRONTEND_PORT}`,
+    `Backend API: http://localhost:${stackEnv.LOCAL_BACKEND_PORT}`,
+    `Backend health: http://localhost:${stackEnv.LOCAL_BACKEND_PORT}/health`,
+    `Backend metrics: http://localhost:${stackEnv.LOCAL_BACKEND_PORT}/metrics`,
+    `Redis: localhost:${stackEnv.LOCAL_REDIS_PORT}`,
+    "",
+    "Observability services",
+    "----------------------",
+  ];
+
+  if (includeObservability) {
+    lines.push(
+      `Prometheus: http://localhost:${stackEnv.LOCAL_PROMETHEUS_PORT}`,
+      `Grafana: http://localhost:${stackEnv.LOCAL_GRAFANA_PORT}`,
+      "Grafana username: admin",
+      "Grafana password: admin",
+      `Loki: http://localhost:${stackEnv.LOCAL_LOKI_PORT}`,
+      `Tempo: http://localhost:${stackEnv.LOCAL_TEMPO_PORT}`,
+      `Alloy: http://localhost:${stackEnv.LOCAL_ALLOY_PORT}`,
+      `OTLP HTTP receiver: http://localhost:${stackEnv.LOCAL_OTLP_HTTP_PORT}`,
+      ""
+    );
+  } else {
+    lines.push(
+      "Observability services are available when you start the stack with `npm run up:obs`.",
+      "Prometheus, Grafana, Loki, Tempo, Alloy, and OTLP will then appear on their local ports.",
+      ""
+    );
+  }
+
+  lines.push(
+    "Hosted dependencies",
+    "-------------------",
+    "Supabase, OpenAI, Deepgram, Notion OAuth, and Razorpay stay hosted and use your local env files.",
+    "",
+    "Notes",
+    "-----",
+    "This file is local-only and ignored by Git.",
+    "Do not store real production secrets here.",
+    ""
+  );
+
+  return `${lines.join("\n")}\n`;
+}
+
+export async function writeLocalAccessSummary(result, includeObservability = false) {
+  const contents = buildLocalAccessSummary(result, includeObservability);
+  await fs.writeFile(localAccessFile, contents, "utf8");
+  return localAccessFile;
+}
+
 export function printServiceSummary(result, includeObservability = false) {
   const stackEnv = result.stackEnv ?? defaultStackEnv;
   console.log("");
@@ -481,6 +557,17 @@ export function printServiceSummary(result, includeObservability = false) {
   if (includeObservability) {
     console.log(`Prometheus: http://localhost:${stackEnv.LOCAL_PROMETHEUS_PORT}`);
     console.log(`Grafana:    http://localhost:${stackEnv.LOCAL_GRAFANA_PORT} (admin/admin)`);
+    console.log(`Loki:       http://localhost:${stackEnv.LOCAL_LOKI_PORT}`);
+    console.log(`Tempo:      http://localhost:${stackEnv.LOCAL_TEMPO_PORT}`);
+    console.log(`Alloy:      http://localhost:${stackEnv.LOCAL_ALLOY_PORT}`);
+    console.log(`OTLP HTTP:  http://localhost:${stackEnv.LOCAL_OTLP_HTTP_PORT}`);
+  } else {
+    console.log(`Prometheus: http://localhost:${stackEnv.LOCAL_PROMETHEUS_PORT} (run npm run up:obs)`);
+    console.log(`Grafana:    http://localhost:${stackEnv.LOCAL_GRAFANA_PORT} (run npm run up:obs, admin/admin)`);
+    console.log(`Loki:       http://localhost:${stackEnv.LOCAL_LOKI_PORT} (run npm run up:obs)`);
+    console.log(`Tempo:      http://localhost:${stackEnv.LOCAL_TEMPO_PORT} (run npm run up:obs)`);
+    console.log(`Alloy:      http://localhost:${stackEnv.LOCAL_ALLOY_PORT} (run npm run up:obs)`);
+    console.log(`OTLP HTTP:  http://localhost:${stackEnv.LOCAL_OTLP_HTTP_PORT} (run npm run up:obs)`);
   }
   console.log("");
   console.log("External dependencies");
@@ -505,4 +592,7 @@ export function printServiceSummary(result, includeObservability = false) {
       console.log(`- ${warning}`);
     }
   }
+
+  console.log("");
+  console.log(`Local access file: ${relPath(localAccessFile)}`);
 }

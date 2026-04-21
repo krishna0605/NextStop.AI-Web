@@ -24,6 +24,21 @@
 - `BACKEND_HEALTH_URL` repository variable is configured so backend worker health can be checked during certification
 - `AI_CORE_SHARED_SECRET` repository secret is configured so the post-deploy workflow can publish hosted verification and launch-certification status
 
+### Observability
+
+- `OPS_ALLOWED_EMAILS` and/or `OPS_ALLOWED_DOMAINS` are configured in Vercel before exposing `/dashboard/ops`
+- Grafana URLs are configured in Vercel:
+  - `GRAFANA_OVERVIEW_URL`
+  - `GRAFANA_LOGS_URL`
+  - `GRAFANA_TRACES_URL`
+  - `GRAFANA_SYNTHETIC_MONITORING_URL`
+- `SENTRY_ISSUES_URL` is configured in Vercel
+- `NEXT_PUBLIC_SENTRY_DSN` and `SENTRY_DSN` are configured
+- `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`, `SENTRY_ORG`, `SENTRY_PROJECT`, and `SENTRY_AUTH_TOKEN` are configured
+- `OTEL_SERVICE_NAME` is configured for Vercel and Railway
+- `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS` are configured for Railway
+- Grafana Alloy or the managed Grafana Cloud OTLP gateway is reachable from the backend
+
 ### Vercel
 
 - Add all app env vars from `.env.example`
@@ -127,8 +142,17 @@
 ### Operational
 
 - `GET /api/health/readiness` returns healthy status
-- `/dashboard/ops` shows worker health, recent failures, and runtime boundaries
+- `/dashboard/ops` is reachable only to operator allowlisted accounts
+- `/dashboard/ops` shows worker health, queue and cleanup summaries, hosted verification, launch certification, and external observability links without raw logs or stack traces
 - Railway `GET /health` reports `workerReady=true` and `directExecution=true`
+- Railway `GET /health` exposes `observability` configuration state
+- Railway `GET /metrics` exposes Prometheus metrics for:
+  - HTTP routes
+  - queue depth
+  - meeting lifecycle gauges
+  - security counters
+  - cleanup counters
+  - hosted verification and launch certification
 - Railway `GET /health` exposes cleanup and security counters:
   - no active `lastCleanupError`
   - recent transcript/export activity is visible
@@ -159,7 +183,7 @@ Treat a deployment as launchable only when all of the following are true:
   - hosted verification summary
   - launch certification summary
   - capture runtime and finalization backlog
-  - degraded meetings and export failures are understandable without raw logs
+  - only safe summaries and external links, with no raw logs, traces, stack traces, or payloads
 - Transcript and export routes return deterministic policy-aware failures:
   - rate limited
   - expired by retention

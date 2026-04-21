@@ -1,3 +1,4 @@
+import { canAccessOpsConsole } from "@/lib/env";
 import { requireWorkspaceAccess } from "@/lib/workspace-page";
 
 import { DashboardShell } from "./DashboardShell";
@@ -13,6 +14,7 @@ export default async function DashboardLayout({
     <DashboardShell
       user={user}
       profile={access.profile}
+      canAccessOps={canAccessOpsConsole(user.email)}
     >
       {children}
     </DashboardShell>

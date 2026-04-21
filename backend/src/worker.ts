@@ -1,5 +1,10 @@
 import { Worker, type Job } from "bullmq";
 
+import {
+  captureException,
+  initObservability,
+  logEvent,
+} from "./observability.js";
 import { executeQueuedJob } from "./ai-executor.js";
 import { getRedisConnection } from "./redis.js";
 import { markWorkerActivity, markWorkerDegraded, markWorkerHeartbeat, markWorkerReady } from "./worker-state.js";
@@ -30,6 +35,8 @@ function getJobPayload(job: Job<RemoteAiJobPayload>) {
   return payload as Required<Pick<RemoteAiJobPayload, "jobId">> & RemoteAiJobPayload;
 }
 
+initObservability("nextstop-ai-worker");
+
 const worker = new Worker<RemoteAiJobPayload>(
   "nextstop-ai-jobs",
   async (job) => {
@@ -47,7 +54,8 @@ const worker = new Worker<RemoteAiJobPayload>(
 
 worker.on("ready", () => {
   markWorkerReady();
-  console.info("[ai-core] Direct execution worker started", {
+  logEvent("info", "worker_ready", {
+    service: "nextstop-ai-worker",
     queue: "nextstop-ai-jobs",
     pipelineMode: getPipelineMode(),
     executionTarget: "railway_worker_direct",
@@ -60,7 +68,8 @@ worker.on("active", (job) => {
 
 worker.on("completed", (job) => {
   markWorkerActivity(job.name, job.data?.jobId ?? null);
-  console.info("[ai-core] Completed queued job", {
+  logEvent("info", "queued_job_completed", {
+    service: "nextstop-ai-worker",
     queueJobId: job.id,
     jobName: job.name,
     aiJobId: job.data?.jobId ?? null,
@@ -70,7 +79,15 @@ worker.on("completed", (job) => {
 worker.on("failed", (job, error) => {
   markWorkerActivity(job?.name ?? "unknown", job?.data?.jobId ?? null);
   markWorkerDegraded(error.message, job?.name ?? "unknown", job?.data?.jobId ?? null);
-  console.error("[ai-core] Queued job failed", {
+  captureException(error, {
+    service: "nextstop-ai-worker",
+    jobName: job?.name ?? "unknown",
+    jobId: job?.data?.jobId ?? null,
+    meetingId: job?.data?.meetingId ?? null,
+    userId: job?.data?.userId ?? null,
+  });
+  logEvent("error", "queued_job_failed", {
+    service: "nextstop-ai-worker",
     queueJobId: job?.id ?? null,
     jobName: job?.name ?? null,
     aiJobId: job?.data?.jobId ?? null,
@@ -79,9 +96,12 @@ worker.on("failed", (job, error) => {
 });
 
 if (getPipelineMode() !== "railway_remote") {
-  console.warn(
-    "[ai-core] Worker started while AI_PIPELINE_MODE is not railway_remote. Remote jobs may never be enqueued from the web app."
-  );
+  logEvent("warn", "worker_pipeline_mode_mismatch", {
+    service: "nextstop-ai-worker",
+    pipelineMode: getPipelineMode(),
+    detail:
+      "Worker started while AI_PIPELINE_MODE is not railway_remote. Remote jobs may never be enqueued from the web app.",
+  });
 }
 
 const idleHeartbeatIntervalMs = Number(process.env.WORKER_IDLE_HEARTBEAT_INTERVAL_MS ?? 30_000);

@@ -1,3 +1,5 @@
+import { recordAiProviderCall, runWithTraceSpan } from "./observability.js";
+
 const DEEPGRAM_URL =
   "https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&punctuate=true&paragraphs=true&utterances=true";
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -238,47 +240,76 @@ export async function transcribeWithDeepgramResult(file: File, mimeType?: string
   }
 
   const requestBody = await file.arrayBuffer();
-  let lastError: Error | null = null;
+  const startedAt = Date.now();
 
-  for (let attempt = 1; attempt <= DEFAULT_MAX_ATTEMPTS; attempt += 1) {
-    try {
-      const response = await fetch(DEEPGRAM_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Token ${apiKey}`,
-          "Content-Type": mimeType || file.type || "audio/webm",
-        },
-        body: requestBody.slice(0),
-      });
+  return runWithTraceSpan(
+    "deepgram.transcribe",
+    {
+      provider: "deepgram",
+      operation: "transcribe",
+    },
+    async () => {
+      let lastError: Error | null = null;
 
-      const payload = (await response.json().catch(() => null)) as DeepgramResponse | null;
+      for (let attempt = 1; attempt <= DEFAULT_MAX_ATTEMPTS; attempt += 1) {
+        try {
+          const response = await fetch(DEEPGRAM_URL, {
+            method: "POST",
+            headers: {
+              Authorization: `Token ${apiKey}`,
+              "Content-Type": mimeType || file.type || "audio/webm",
+            },
+            body: requestBody.slice(0),
+          });
 
-      if (!response.ok) {
-        const error = new Error(payload?.err_msg || "Deepgram transcription failed.");
+          const payload = (await response.json().catch(() => null)) as DeepgramResponse | null;
 
-        if (attempt < DEFAULT_MAX_ATTEMPTS && isRetryableStatus(response.status)) {
-          await sleep(400 * 2 ** (attempt - 1));
-          lastError = error;
-          continue;
+          if (!response.ok) {
+            const error = new Error(payload?.err_msg || "Deepgram transcription failed.");
+
+            if (attempt < DEFAULT_MAX_ATTEMPTS && isRetryableStatus(response.status)) {
+              await sleep(400 * 2 ** (attempt - 1));
+              lastError = error;
+              continue;
+            }
+
+            throw error;
+          }
+
+          recordAiProviderCall({
+            provider: "deepgram",
+            operation: "transcribe",
+            outcome: "success",
+            startedAt,
+          });
+          return normalizeDeepgramPayload(payload ?? {});
+        } catch (error) {
+          const normalizedError =
+            error instanceof Error ? error : new Error("Deepgram transcription failed.");
+
+          if (attempt < DEFAULT_MAX_ATTEMPTS && isRetryableError(normalizedError)) {
+            await sleep(400 * 2 ** (attempt - 1));
+            lastError = normalizedError;
+            continue;
+          }
+
+          recordAiProviderCall({
+            provider: "deepgram",
+            operation: "transcribe",
+            outcome: "failed",
+            startedAt,
+          });
+          throw normalizedError;
         }
-
-        throw error;
       }
 
-      return normalizeDeepgramPayload(payload ?? {});
-    } catch (error) {
-      const normalizedError =
-        error instanceof Error ? error : new Error("Deepgram transcription failed.");
-
-      if (attempt < DEFAULT_MAX_ATTEMPTS && isRetryableError(normalizedError)) {
-        await sleep(400 * 2 ** (attempt - 1));
-        lastError = normalizedError;
-        continue;
-      }
-
-      throw normalizedError;
+      recordAiProviderCall({
+        provider: "deepgram",
+        operation: "transcribe",
+        outcome: "failed",
+        startedAt,
+      });
+      throw lastError ?? new Error("Deepgram transcription failed.");
     }
-  }
-
-  throw lastError ?? new Error("Deepgram transcription failed.");
+  );
 }

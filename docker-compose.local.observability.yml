@@ -13,6 +13,44 @@ services:
       backend-api:
         condition: service_healthy
 
+  loki:
+    profiles: ["observability"]
+    image: grafana/loki:3.2.1
+    command:
+      - -config.file=/etc/loki/config.yml
+    ports:
+      - "${LOCAL_LOKI_PORT:-3100}:3100"
+    volumes:
+      - ./ops/observability/loki/config.yml:/etc/loki/config.yml:ro
+
+  tempo:
+    profiles: ["observability"]
+    image: grafana/tempo:2.6.1
+    command:
+      - -config.file=/etc/tempo/config.yml
+    ports:
+      - "${LOCAL_TEMPO_PORT:-3200}:3200"
+      - "${LOCAL_OTLP_HTTP_PORT:-4318}:4318"
+    volumes:
+      - ./ops/observability/tempo/config.yml:/etc/tempo/config.yml:ro
+
+  alloy:
+    profiles: ["observability"]
+    image: grafana/alloy:v1.4.2
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - /etc/alloy/config.alloy
+    ports:
+      - "${LOCAL_ALLOY_PORT:-12345}:12345"
+    volumes:
+      - ./ops/observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+    depends_on:
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+
   grafana:
     profiles: ["observability"]
     image: grafana/grafana:11.2.0
@@ -28,4 +66,8 @@ services:
       - ./ops/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       prometheus:
+        condition: service_started
+      loki:
+        condition: service_started
+      tempo:
         condition: service_started

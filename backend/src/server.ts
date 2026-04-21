@@ -1,5 +1,14 @@
 import Fastify from "fastify";
 
+import {
+  captureException,
+  getMetricsContentType,
+  getMetricsPayload,
+  getObservabilityStatus,
+  initObservability,
+  recordHttpRequest,
+  syncRuntimeGaugeSnapshot,
+} from "./observability.js";
 import { getAiQueue, removeQueuedAiJob } from "./queue.js";
 import {
   buildEntitlements,
@@ -18,6 +27,8 @@ import {
 } from "./runtime-status.js";
 import { getWorkerState } from "./worker-state.js";
 
+initObservability("nextstop-ai-core-api");
+
 type TranscriptionJobPayload = {
   jobId: string;
   meetingId: string;
@@ -30,6 +41,69 @@ type RegenerationJobPayload = TranscriptionJobPayload & {
 
 const app = Fastify({ logger: true });
 const queue = getAiQueue();
+
+app.addHook("onRequest", async (request) => {
+  (request as typeof request & { startedAt?: number }).startedAt = Date.now();
+});
+
+app.addHook("onResponse", async (request, reply) => {
+  const startedAt = (request as typeof request & { startedAt?: number }).startedAt ?? Date.now();
+  recordHttpRequest({
+    method: request.method,
+    route: request.routeOptions.url || request.url,
+    statusCode: reply.statusCode,
+    durationMs: Date.now() - startedAt,
+  });
+});
+
+app.addHook("onError", async (request, _reply, error) => {
+  captureException(error, {
+    service: "nextstop-ai-core-api",
+    route: request.routeOptions.url || request.url,
+  });
+});
+
+async function countTableRows(
+  table: string,
+  filters: Array<{ column: string; value: string }> = []
+) {
+  const admin = createAdminClient();
+  let query = admin.from(table).select("*", { count: "exact", head: true });
+
+  for (const filter of filters) {
+    query = query.eq(filter.column, filter.value);
+  }
+
+  const { count, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return count ?? 0;
+}
+
+async function loadMeetingStatusCounts() {
+  const statuses = [
+    "finalizing_upload",
+    "queued",
+    "transcribing",
+    "transcript_ready",
+    "analyzing",
+    "ready",
+    "canceled",
+    "failed",
+  ] as const;
+
+  const counts = await Promise.all(
+    statuses.map(async (status) => [
+      status,
+      await countTableRows("web_meetings", [{ column: "status", value: status }]),
+    ] as const)
+  );
+
+  return Object.fromEntries(counts);
+}
 
 app.get("/health", async () => {
   const [worker, cleanup, security, hostedVerification, launchCertification] = await Promise.all([
@@ -55,6 +129,7 @@ app.get("/health", async () => {
     security,
     hostedVerification,
     launchCertification,
+    observability: getObservabilityStatus("nextstop-ai-core-api"),
     aiPipelineMode: process.env.AI_PIPELINE_MODE ?? "railway_remote",
     deepgramConfigured: Boolean(process.env.DEEPGRAM_API_KEY),
     openAiConfigured: Boolean(process.env.OPENAI_API_KEY),
@@ -62,67 +137,59 @@ app.get("/health", async () => {
 });
 
 app.get("/metrics", async (_request, reply) => {
-  const [worker, cleanup, security, hostedVerification, launchCertification] = await Promise.all([
+  const [
+    worker,
+    cleanup,
+    security,
+    hostedVerification,
+    launchCertification,
+    queueCounts,
+    meetingCountByStatus,
+    cancelRequestedJobs,
+  ] = await Promise.all([
     getWorkerState(),
     loadCleanupStatus(),
     loadSecurityStatus(),
     loadHostedVerificationStatus(),
     loadLaunchCertificationStatus(),
+    queue.getJobCounts("waiting", "active", "completed", "failed", "delayed", "paused"),
+    loadMeetingStatusCounts(),
+    countTableRows("ai_jobs", [{ column: "status", value: "cancel_requested" }]),
   ]);
   const heartbeatAgeSeconds =
     worker.lastHeartbeatAt && !Number.isNaN(new Date(worker.lastHeartbeatAt).getTime())
       ? Math.max(0, Math.round((Date.now() - new Date(worker.lastHeartbeatAt).getTime()) / 1000))
       : -1;
-  const lines = [
-    "# HELP nextstop_api_up Whether the NextStop local API is running.",
-    "# TYPE nextstop_api_up gauge",
-    "nextstop_api_up 1",
-    "# HELP nextstop_api_process_uptime_seconds Node.js process uptime in seconds.",
-    "# TYPE nextstop_api_process_uptime_seconds gauge",
-    `nextstop_api_process_uptime_seconds ${process.uptime().toFixed(2)}`,
-    "# HELP nextstop_api_worker_ready Whether the local API process has observed a worker-ready signal.",
-    "# TYPE nextstop_api_worker_ready gauge",
-    `nextstop_api_worker_ready ${worker.workerReady ? 1 : 0}`,
-    "# HELP nextstop_api_worker_stale Whether the worker heartbeat is stale.",
-    "# TYPE nextstop_api_worker_stale gauge",
-    `nextstop_api_worker_stale ${worker.stale ? 1 : 0}`,
-    "# HELP nextstop_api_direct_execution Whether direct execution mode is enabled.",
-    "# TYPE nextstop_api_direct_execution gauge",
-    `nextstop_api_direct_execution ${worker.directExecution ? 1 : 0}`,
-    "# HELP nextstop_api_worker_heartbeat_age_seconds Age of the latest worker heartbeat in seconds.",
-    "# TYPE nextstop_api_worker_heartbeat_age_seconds gauge",
-    `nextstop_api_worker_heartbeat_age_seconds ${heartbeatAgeSeconds}`,
-    "# HELP nextstop_cleanup_deleted_audio_assets_total Total raw-audio assets deleted by cleanup.",
-    "# TYPE nextstop_cleanup_deleted_audio_assets_total counter",
-    `nextstop_cleanup_deleted_audio_assets_total ${cleanup.deletedAudioAssetCount}`,
-    "# HELP nextstop_cleanup_deleted_transcript_assets_total Total transcript assets deleted by cleanup.",
-    "# TYPE nextstop_cleanup_deleted_transcript_assets_total counter",
-    `nextstop_cleanup_deleted_transcript_assets_total ${cleanup.deletedTranscriptAssetCount}`,
-    "# HELP nextstop_cleanup_pending_expired_assets Number of expired assets still pending cleanup.",
-    "# TYPE nextstop_cleanup_pending_expired_assets gauge",
-    `nextstop_cleanup_pending_expired_assets ${cleanup.pendingExpiredAssetCount}`,
-    "# HELP nextstop_security_rate_limit_denied_total Total denied requests due to rate limiting.",
-    "# TYPE nextstop_security_rate_limit_denied_total counter",
-    `nextstop_security_rate_limit_denied_total ${security.rateLimitDeniedCount}`,
-    "# HELP nextstop_security_transcript_download_granted_total Total allowed transcript downloads.",
-    "# TYPE nextstop_security_transcript_download_granted_total counter",
-    `nextstop_security_transcript_download_granted_total ${security.transcriptDownloadGrantedCount}`,
-    "# HELP nextstop_security_transcript_download_blocked_total Total blocked transcript downloads.",
-    "# TYPE nextstop_security_transcript_download_blocked_total counter",
-    `nextstop_security_transcript_download_blocked_total ${security.transcriptDownloadBlockedCount}`,
-    "# HELP nextstop_security_export_requested_total Total export requests observed by app routes.",
-    "# TYPE nextstop_security_export_requested_total counter",
-    `nextstop_security_export_requested_total ${security.exportRequestedCount}`,
-    "# HELP nextstop_hosted_verification_passed Whether the latest hosted verification run passed.",
-    "# TYPE nextstop_hosted_verification_passed gauge",
-    `nextstop_hosted_verification_passed ${hostedVerification.lastHostedVerificationStatus === "pass" ? 1 : 0}`,
-    "# HELP nextstop_launch_certified Whether the latest launch certification is active.",
-    "# TYPE nextstop_launch_certified gauge",
-    `nextstop_launch_certified ${launchCertification.lastLaunchCertificationStatus === "certified" ? 1 : 0}`,
-  ];
 
-  reply.header("content-type", "text/plain; version=0.0.4; charset=utf-8");
-  return `${lines.join("\n")}\n`;
+  syncRuntimeGaugeSnapshot({
+    workerReady: worker.workerReady,
+    workerStale: worker.stale,
+    directExecution: worker.directExecution,
+    heartbeatAgeSeconds,
+    cleanupDeletedAudioAssets: cleanup.deletedAudioAssetCount,
+    cleanupDeletedTranscriptAssets: cleanup.deletedTranscriptAssetCount,
+    cleanupPendingExpiredAssets: cleanup.pendingExpiredAssetCount,
+    cleanupFailures: cleanup.lastCleanupError ? 1 : 0,
+    securityRateLimitDeniedCount: security.rateLimitDeniedCount,
+    securityTranscriptGrantedCount: security.transcriptDownloadGrantedCount,
+    securityTranscriptBlockedCount: security.transcriptDownloadBlockedCount,
+    securityExportRequestedCount: security.exportRequestedCount,
+    hostedVerificationPassed: hostedVerification.lastHostedVerificationStatus === "pass",
+    launchCertified: launchCertification.lastLaunchCertificationStatus === "certified",
+    queueDepthByState: {
+      waiting: queueCounts.waiting ?? 0,
+      active: queueCounts.active ?? 0,
+      completed: queueCounts.completed ?? 0,
+      failed: queueCounts.failed ?? 0,
+      delayed: queueCounts.delayed ?? 0,
+      paused: queueCounts.paused ?? 0,
+    },
+    meetingCountByStatus,
+    cancelRequestedJobs,
+  });
+
+  reply.header("content-type", getMetricsContentType());
+  return getMetricsPayload();
 });
 
 function requireSecret(authHeader?: string) {

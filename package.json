@@ -10,6 +10,7 @@
     "up:build": "node scripts/up.mjs --build",
     "up:obs": "node scripts/up.mjs --observability",
     "up:build:obs": "node scripts/up.mjs --build --observability",
+    "up:all": "npm run down && npm run up:build:obs",
     "down": "node scripts/down.mjs",
     "restart": "npm run down && npm run up",
     "logs": "docker compose -f docker-compose.local.yml -f docker-compose.local.dev.yml -f docker-compose.local.observability.yml logs -f",
