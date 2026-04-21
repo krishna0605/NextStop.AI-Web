@@ -44,7 +44,7 @@ env:
 
 jobs:
   readiness-check:
-    if: ${{ env.BASE_URL != '' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    if: ${{ ((github.event_name == 'workflow_dispatch' && inputs.base_url != '') || (github.event_name != 'workflow_dispatch' && vars.PRODUCTION_BASE_URL != '')) && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
     outputs:
       launch_decision: ${{ steps.certify_readiness.outputs.launch_decision }}
@@ -88,7 +88,7 @@ jobs:
           path: readiness.json
 
   backend-health:
-    if: ${{ env.BACKEND_HEALTH_URL != '' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    if: ${{ ((github.event_name == 'workflow_dispatch' && inputs.backend_health_url != '') || (github.event_name != 'workflow_dispatch' && vars.BACKEND_HEALTH_URL != '')) && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
     needs: readiness-check
     steps:
@@ -102,7 +102,7 @@ jobs:
           path: backend-health.json
 
   preview-smoke:
-    if: ${{ env.BASE_URL != '' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
+    if: ${{ ((github.event_name == 'workflow_dispatch' && inputs.base_url != '') || (github.event_name != 'workflow_dispatch' && vars.PRODUCTION_BASE_URL != '')) && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
     needs:
       - readiness-check
