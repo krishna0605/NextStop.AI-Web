@@ -161,7 +161,7 @@
   body {
     @apply bg-background text-foreground;
     background: transparent;
-    overflow-x: hidden;
+    overflow-x: clip;
     scrollbar-gutter: stable;
   }
 
@@ -229,6 +229,15 @@
     mask-composite: exclude;
     pointer-events: none;
     z-index: -1;
+  }
+
+  .navbar-shell {
+    border-bottom: 1px solid rgb(255 255 255 / 0.08);
+    background:
+      linear-gradient(180deg, rgb(5 5 7 / 0.92), rgb(5 5 7 / 0.72)),
+      linear-gradient(90deg, rgb(var(--brand-primary-rgb) / 0.05), transparent 28%, transparent 72%, rgb(var(--brand-trust-rgb) / 0.05));
+    backdrop-filter: blur(20px);
+    box-shadow: 0 16px 42px -34px rgb(0 0 0 / 0.95);
   }
 }
 

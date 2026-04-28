@@ -2,6 +2,7 @@
 
 import { Button } from "@heroui/react";
 import { motion, useScroll, useTransform } from "framer-motion";
+import Link from "next/link";
 import React, { useRef } from "react";
 
 import { useToast } from "./ui/ActionToast";
@@ -46,7 +47,7 @@ export function Hero() {
                 boxShadow: "0 0 12px rgb(var(--brand-highlight-rgb) / 0.6)",
               }}
             />
-            Desktop Meeting Intelligence
+            Desktop + Web Meeting Intelligence
           </span>
         </motion.div>
 
@@ -55,7 +56,7 @@ export function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.08 }}
           style={{ y: headingY, willChange: "transform" }}
-          className="font-heading mb-6 max-w-5xl text-5xl font-bold tracking-tight text-white md:text-7xl lg:text-8xl"
+          className="font-heading mb-6 max-w-5xl text-5xl font-semibold tracking-[-0.02em] leading-[1.05] text-white md:text-7xl lg:text-8xl"
         >
           Run meetings locally. Let{" "}
           <span className="brand-gradient-text text-shimmer">NextStop.ai</span>
@@ -67,12 +68,10 @@ export function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.16 }}
           style={{ y: subtextY, willChange: "transform" }}
-          className="mb-10 max-w-2xl text-lg text-zinc-300/80 md:text-xl"
+          className="mb-10 max-w-2xl text-lg leading-relaxed tracking-normal text-zinc-300/80 md:text-xl"
         >
-          Start a structured desktop session, capture speaker-aware transcripts
-          locally, and send only the finalized meeting package to a secure
-          post-meeting AI pipeline for summaries, tasks, drafts, memory, and
-          workspace sync.
+          Structured capture on desktop, review and sync on web. One secure
+          post-meeting AI flow that turns every session into clean follow-up.
         </motion.p>
 
         <motion.div
@@ -90,14 +89,12 @@ export function Hero() {
           >
             Download Desktop App
           </Button>
-          <Button
-            size="lg"
-            variant="bordered"
-            radius="full"
-            className="brand-button-secondary button-shine h-12 w-full px-8 text-md font-semibold sm:w-auto"
+          <Link
+            href="/pricing"
+            className="brand-button-secondary button-shine flex h-12 w-full items-center justify-center rounded-full px-8 text-md font-semibold sm:w-auto"
           >
-            Explore Workflow
-          </Button>
+            View Plans
+          </Link>
         </motion.div>
 
         <motion.div

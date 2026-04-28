@@ -282,6 +282,17 @@ function SignupForm() {
             Sign in
           </Link>
         </p>
+        <p className="mt-4 text-center text-xs leading-relaxed text-zinc-500">
+          By creating an account, you agree to the{" "}
+          <Link href="/terms" className="brand-link text-zinc-300">
+            Terms
+          </Link>{" "}
+          and acknowledge the{" "}
+          <Link href="/privacy" className="brand-link text-zinc-300">
+            Privacy Policy
+          </Link>
+          .
+        </p>
       </div>
     </motion.div>
   );

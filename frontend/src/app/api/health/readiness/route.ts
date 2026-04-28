@@ -3,10 +3,38 @@ import { NextResponse } from "next/server";
 import {
   getMissingEnvSummary,
   getRuntimeReadiness,
+  isProductionRuntime,
   loadAiCoreHealthSnapshot,
 } from "@/lib/env";
 
 export const runtime = "nodejs";
+
+type EvidenceSnapshot = Record<string, unknown> | null;
+
+function asEvidenceSnapshot(value: unknown): EvidenceSnapshot {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function isHostedVerificationPassed(snapshot: EvidenceSnapshot) {
+  return snapshot?.lastHostedVerificationStatus === "pass";
+}
+
+function isLaunchCertificationComplete(snapshot: EvidenceSnapshot) {
+  return (
+    snapshot?.lastLaunchCertificationStatus === "certified" &&
+    snapshot.validationGreen === true &&
+    snapshot.hostedVerificationPassed === true &&
+    snapshot.operationalProofComplete === true
+  );
+}
+
+function isProductionObservabilityReady(snapshot: EvidenceSnapshot) {
+  return (
+    snapshot?.environment === "production" &&
+    snapshot.sentryConfigured === true &&
+    snapshot.otlpConfigured === true
+  );
+}
 
 export async function GET() {
   const readiness = getRuntimeReadiness();
@@ -123,22 +151,44 @@ export async function GET() {
   const warnings = checks
     .filter((check) => check.status === "warn")
     .map((check) => ({ name: check.name, detail: check.detail }));
-  const launchDecision =
-    blockingFailures.length > 0 ? "blocked" : warnings.length > 0 ? "degraded" : "ready";
   const frontendVersion =
     process.env.RELEASE_VERSION?.trim() ||
     process.env.VERCEL_GIT_COMMIT_SHA?.trim() ||
     "dev";
-  const hostedVerification =
-    aiCoreHealth?.payload?.hostedVerification &&
-    typeof aiCoreHealth.payload.hostedVerification === "object"
-      ? aiCoreHealth.payload.hostedVerification
-      : null;
-  const launchCertification =
-    aiCoreHealth?.payload?.launchCertification &&
-    typeof aiCoreHealth.payload.launchCertification === "object"
-      ? aiCoreHealth.payload.launchCertification
-      : null;
+  const hostedVerification = asEvidenceSnapshot(aiCoreHealth?.payload?.hostedVerification);
+  const launchCertification = asEvidenceSnapshot(aiCoreHealth?.payload?.launchCertification);
+  const observability = asEvidenceSnapshot(aiCoreHealth?.payload?.observability);
+  const productionEvidenceChecks = isProductionRuntime()
+    ? [
+        {
+          name: "Hosted verification",
+          status: isHostedVerificationPassed(hostedVerification) ? "pass" : "fail",
+          detail: isHostedVerificationPassed(hostedVerification)
+            ? "Hosted verification has passed for this runtime."
+            : "Hosted verification is missing or has not passed.",
+        },
+        {
+          name: "Launch certification",
+          status: isLaunchCertificationComplete(launchCertification) ? "pass" : "fail",
+          detail: isLaunchCertificationComplete(launchCertification)
+            ? "Launch certification is complete."
+            : "Launch certification is missing, pending, or incomplete.",
+        },
+        {
+          name: "Production observability",
+          status: isProductionObservabilityReady(observability) ? "pass" : "fail",
+          detail: isProductionObservabilityReady(observability)
+            ? "Production Sentry and OTLP observability are configured."
+            : "Production observability proof is missing or incomplete.",
+        },
+      ]
+    : [];
+  const productionEvidenceFailures = productionEvidenceChecks
+    .filter((check) => check.status === "fail")
+    .map((check) => ({ name: check.name, detail: check.detail }));
+  const allBlockingFailures = [...blockingFailures, ...productionEvidenceFailures];
+  const launchDecision =
+    allBlockingFailures.length > 0 ? "blocked" : warnings.length > 0 ? "degraded" : "ready";
 
   return NextResponse.json(
     {
@@ -157,8 +207,9 @@ export async function GET() {
       launchCertification,
       missing,
       checks,
-      blockingFailures,
+      blockingFailures: allBlockingFailures,
       warnings,
+      productionEvidenceChecks,
       launchDecision,
     },
     {

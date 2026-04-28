@@ -39,7 +39,7 @@ type RegenerationJobPayload = TranscriptionJobPayload & {
   artifactType: string;
 };
 
-const app = Fastify({ logger: true });
+export const app = Fastify({ logger: process.env.VITEST === "true" ? false : true });
 const queue = getAiQueue();
 
 app.addHook("onRequest", async (request) => {
@@ -301,16 +301,32 @@ function assertLaunchCertificationBody(body: unknown) {
     throw new Error("readinessLaunchDecision must be ready, degraded, or blocked.");
   }
 
+  const validationGreen = payload.validationGreen === true;
+  const hostedVerificationPassed = payload.hostedVerificationPassed === true;
+  const operationalProofComplete = payload.operationalProofComplete === true;
+
+  if (
+    status === "certified" &&
+    (!validationGreen || !hostedVerificationPassed || !operationalProofComplete)
+  ) {
+    throw new Error(
+      "Certified launch status requires validationGreen, hostedVerificationPassed, and operationalProofComplete."
+    );
+  }
+
   return {
     status: status as "pending" | "certified" | "blocked",
     certifiedBy: asString(payload.certifiedBy),
     certificationNotes: asString(payload.certificationNotes),
-    validationGreen: payload.validationGreen === true,
-    hostedVerificationPassed: payload.hostedVerificationPassed === true,
-    operationalProofComplete: payload.operationalProofComplete === true,
+    validationGreen,
+    hostedVerificationPassed,
+    operationalProofComplete,
     readinessLaunchDecision: (readinessLaunchDecision ??
       null) as "ready" | "degraded" | "blocked" | null,
-    lastLaunchCertificationAt: asIsoString(payload.lastLaunchCertificationAt),
+    lastLaunchCertificationAt: asRequiredValidIsoString(
+      payload.lastLaunchCertificationAt,
+      "lastLaunchCertificationAt"
+    ),
   };
 }
 
@@ -368,6 +384,21 @@ function asIsoString(value: unknown) {
 
   const time = Date.parse(parsed);
   return Number.isNaN(time) ? null : new Date(time).toISOString();
+}
+
+function asRequiredValidIsoString(value: unknown, fieldName: string) {
+  if (value === null || typeof value === "undefined") {
+    return null;
+  }
+
+  const parsed = asString(value);
+  const time = parsed ? Date.parse(parsed) : NaN;
+
+  if (!parsed || Number.isNaN(time)) {
+    throw new Error(`${fieldName} must be a valid ISO timestamp.`);
+  }
+
+  return new Date(time).toISOString();
 }
 
 function asJsonRecord(value: unknown) {
@@ -1057,7 +1088,9 @@ app.get("/jobs/:jobId", async (request, reply) => {
   }
 });
 
-app.listen({
-  host: "0.0.0.0",
-  port: Number(process.env.PORT ?? 8080),
-});
+if (process.env.VITEST !== "true") {
+  app.listen({
+    host: "0.0.0.0",
+    port: Number(process.env.PORT ?? 8080),
+  });
+}

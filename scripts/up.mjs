@@ -13,6 +13,39 @@ const args = new Set(process.argv.slice(2));
 const build = args.has("--build");
 const includeObservability = args.has("--observability");
 const stackEnv = await loadStackEnv();
+const sharedEnv = { ...process.env, ...stackEnv };
+
+function getComposeCommandArgs() {
+  const composeCommandArgs = [
+    "compose",
+    ...composeArgs(includeObservability),
+  ];
+
+  if (includeObservability) {
+    composeCommandArgs.push("--profile", "observability");
+  }
+
+  return composeCommandArgs;
+}
+
+function getUpArgs() {
+  const upArgs = [...getComposeCommandArgs(), "up", "-d", "--remove-orphans"];
+
+  if (build) {
+    upArgs.push("--build");
+  }
+
+  return upArgs;
+}
+
+function isMissingComposeNetworkError(error) {
+  return (
+    error instanceof Error &&
+    /failed to set up container networking: network .* not found/i.test(
+      error.message
+    )
+  );
+}
 
 const envCheck = await validateLocalEnv();
 if (!envCheck.ok) {
@@ -37,23 +70,26 @@ if (!dockerCheck.ok) {
   process.exit(1);
 }
 
-const upArgs = [
-  "compose",
-  ...composeArgs(includeObservability),
-];
-
-if (includeObservability) {
-  upArgs.push("--profile", "observability");
-}
-
-upArgs.push("up", "-d", "--remove-orphans");
-
-if (build) {
-  upArgs.push("--build");
-}
-
 console.log("Starting NextStop local stack...");
-await runCommand("docker", upArgs, { env: { ...process.env, ...stackEnv } });
+try {
+  await runCommand("docker", getUpArgs(), { env: sharedEnv });
+} catch (error) {
+  if (!isMissingComposeNetworkError(error)) {
+    throw error;
+  }
+
+  console.warn(
+    "Docker reported a missing compose network. Cleaning stale containers and retrying once..."
+  );
+
+  await runCommand(
+    "docker",
+    [...getComposeCommandArgs(), "down", "--remove-orphans"],
+    { env: sharedEnv, allowFailure: true }
+  );
+
+  await runCommand("docker", getUpArgs(), { env: sharedEnv });
+}
 
 console.log("Waiting for local stack readiness...");
 const result = await runHealthChecks({

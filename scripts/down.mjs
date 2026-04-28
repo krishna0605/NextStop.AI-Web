@@ -5,6 +5,8 @@ const stackEnv = await loadStackEnv();
 const args = [
   "compose",
   ...composeArgs(true),
+  "--profile",
+  "observability",
   "down",
   "--remove-orphans",
 ];

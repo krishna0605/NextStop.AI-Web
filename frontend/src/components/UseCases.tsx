@@ -1,192 +1,125 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
-import { CalendarRange, FileText, RefreshCcw } from "lucide-react";
-import React, { useState } from "react";
+import { motion } from "framer-motion";
+import { CalendarRange, FileCheck2, Mic } from "lucide-react";
+import React from "react";
 
-const useCases = [
+const lifecycleSteps = [
   {
-    id: "session-launch",
-    title: "Structured session launch",
+    id: "before",
+    title: "Before the meeting",
+    eyebrow: "Structured start",
     icon: <CalendarRange className="h-5 w-5" />,
     description:
-      "Choose Instant Google Meet, Record Existing Meeting, or Quick Local Notes before capture begins.",
-    mockup: {
-      interviewer:
-        "Session type: Instant Google Meet | Title: Release Readiness | Tag: Engineering | Notion: Launch Hub",
-      ai: "NextStop will create the Meet link, store the meeting metadata locally, and open the review flow when the session ends.",
-      badge: "Start Session",
-    },
+      "Set the meeting mode, title, tag, and destination up front so the session begins with context instead of cleanup.",
+    summary: "Launch with the right structure in one pass.",
   },
   {
-    id: "review-regenerate",
-    title: "Review, regenerate, and verify",
-    icon: <RefreshCcw className="h-5 w-5" />,
+    id: "during",
+    title: "During the meeting",
+    eyebrow: "Local capture",
+    icon: <Mic className="h-5 w-5" />,
     description:
-      "Inspect the AI status rail, preserve partial output, and rerun only the summary, tasks, or draft that needs attention.",
-    mockup: {
-      interviewer:
-        "Overall: Partial success | Summary ready | Tasks failed | Memory ready",
-      ai: "Regenerate Tasks queued. Existing summary, decisions, and follow-ups stay visible while the task extractor reruns.",
-      badge: "AI Review",
-    },
+      "Capture locally with stable participant identity so the transcript and review flow stay grounded in the same meeting reality.",
+    summary: "Keep the live session trustworthy and readable.",
   },
   {
-    id: "workspace-sync",
-    title: "Google + Notion workspace sync",
-    icon: <FileText className="h-5 w-5" />,
+    id: "after",
+    title: "After the meeting",
+    eyebrow: "Approved follow-up",
+    icon: <FileCheck2 className="h-5 w-5" />,
     description:
-      "Route meetings into Google Calendar, page-first Notion exports, and canonical markdown artifacts without rebuilding the follow-up by hand.",
-    mockup: {
-      interviewer:
-        "Sync mode: Page + tasks database | Destination: Product Knowledge Hub",
-      ai: "Preview confirmed. Creating the meeting page, syncing action items, and saving the canonical markdown artifact locally.",
-      badge: "Workspace Sync",
-    },
+      "Review one canonical package, generate summaries and tasks, then sync the approved result into the workspace without rebuilding it by hand.",
+    summary: "Move from review to action with one durable artifact.",
   },
 ];
 
 export function UseCases() {
-  const [activeTab, setActiveTab] = useState(0);
-
   return (
-    <section className="relative overflow-hidden border-t border-white/5 bg-transparent py-24">
+    <section className="relative overflow-hidden bg-transparent py-14">
       <div className="container relative z-10 mx-auto px-4 md:px-6">
-        <div className="mx-auto flex max-w-6xl flex-col items-center gap-12 md:flex-row">
-          <div className="relative w-full flex-1">
-            <h2 className="font-heading mb-6 text-3xl font-bold text-white md:text-5xl">
-              Built for the full <br /> meeting{" "}
-              <span className="brand-gradient-text">lifecycle</span>.
-            </h2>
-            <p className="mb-8 text-lg text-zinc-400">
-              NextStop now covers the moments before, during, and after the
-              meeting so nothing gets lost between launch, review, and export.
-            </p>
+        <div className="mx-auto grid max-w-6xl gap-10 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
+          <div className="max-w-xl">
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="brand-chip mb-6 inline-flex items-center rounded-full px-4 py-1.5 text-sm font-medium"
+            >
+              Built for the full meeting lifecycle
+            </motion.div>
+            <motion.h2
+              initial={{ opacity: 0, y: 18 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="font-heading mb-5 text-3xl font-semibold tracking-[-0.02em] text-white md:text-5xl"
+            >
+              One clean flow from session setup to verified follow-up
+            </motion.h2>
+            <motion.p
+              initial={{ opacity: 0, y: 18 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true }}
+              className="mb-8 max-w-2xl text-lg leading-relaxed text-zinc-400"
+            >
+              NextStop gives product, engineering, and operations teams a
+              shorter path through the meeting lifecycle without turning the
+              homepage into documentation.
+            </motion.p>
 
-            <div className="flex flex-col gap-3">
-              {useCases.map((useCase, idx) => {
-                const isActive = activeTab === idx;
-
-                return (
-                  <button
-                    key={useCase.id}
-                    onClick={() => setActiveTab(idx)}
-                    className="brand-card-hover flex items-start gap-4 rounded-xl border p-4 text-left transition-all"
-                    style={{
-                      borderColor: isActive
-                        ? "rgb(var(--brand-primary-rgb) / 0.3)"
-                        : "transparent",
-                      background: isActive
-                        ? "linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.14), rgb(var(--brand-trust-rgb) / 0.08))"
-                        : "transparent",
-                      boxShadow: isActive
-                        ? "0 0 34px -24px rgb(var(--brand-primary-rgb) / 0.75)"
-                        : "none",
-                    }}
-                  >
-                    <div
-                      className="mt-1 rounded-lg p-2 transition-colors"
-                      style={{
-                        background: isActive
-                          ? "rgb(var(--brand-primary-rgb) / 0.18)"
-                          : "rgb(39 39 42 / 1)",
-                        color: isActive
-                          ? "var(--brand-highlight)"
-                          : "rgb(161 161 170)",
-                      }}
-                    >
-                      {useCase.icon}
-                    </div>
-                    <div>
-                      <h3
-                        className="mb-1 font-bold transition-colors"
-                        style={{ color: isActive ? "#ffffff" : "#a1a1aa" }}
-                      >
-                        {useCase.title}
-                      </h3>
-                      <p className="text-sm text-zinc-500">{useCase.description}</p>
-                    </div>
-                  </button>
-                );
-              })}
+            <div className="flex flex-wrap gap-3">
+              {["Product teams", "Engineering leaders", "Ops workflows"].map((item) => (
+                <span
+                  key={item}
+                  className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-zinc-300"
+                >
+                  {item}
+                </span>
+              ))}
             </div>
           </div>
 
-          <div className="min-h-[400px] w-full flex-1">
-            <div className="relative h-full w-full overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/80 p-2 shadow-2xl before:pointer-events-none before:absolute before:inset-0 before:bg-gradient-to-b before:from-white/8 before:to-transparent md:p-4">
-              <div className="relative flex min-h-[400px] w-full flex-col overflow-hidden rounded-xl border border-white/5 bg-[#0a0a0a]">
-                <div className="flex h-12 items-center justify-between gap-2 border-b border-white/5 bg-[#1a1a1a] px-4">
-                  <div className="flex gap-1.5">
-                    <div className="h-3 w-3 rounded-full bg-red-500/80"></div>
-                    <div className="h-3 w-3 rounded-full bg-yellow-500/80"></div>
-                    <div className="h-3 w-3 rounded-full bg-green-500/80"></div>
+          <div className="grid gap-4">
+            {lifecycleSteps.map((step, index) => (
+              <motion.article
+                key={step.id}
+                initial={{ opacity: 0, y: 18 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: "-80px" }}
+                transition={{ duration: 0.4, delay: index * 0.06 }}
+                className="brand-card-hover rounded-[1.75rem] border border-white/10 bg-black/25 p-6 shadow-[0_24px_64px_-44px_rgba(0,0,0,0.9)]"
+                style={{ "--card-accent-rgb": "242 129 69" } as React.CSSProperties}
+              >
+                <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-[var(--brand-highlight)]">
+                      {step.icon}
+                    </div>
+                    <div>
+                      <p className="mb-2 text-[11px] uppercase tracking-[0.22em] text-zinc-500">
+                        {step.eyebrow}
+                      </p>
+                      <h3 className="font-heading text-2xl font-semibold text-white">
+                        {step.title}
+                      </h3>
+                    </div>
                   </div>
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={activeTab}
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: 10 }}
-                      className="brand-chip-trust rounded-full px-3 py-1 font-mono text-xs"
-                    >
-                      {useCases[activeTab].mockup.badge}
-                    </motion.div>
-                  </AnimatePresence>
+
+                  <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs font-medium uppercase tracking-[0.16em] text-zinc-400">
+                    0{index + 1}
+                  </span>
                 </div>
 
-                <div className="relative flex flex-1 flex-col justify-center gap-6 p-6">
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={`int-${activeTab}`}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 20 }}
-                      transition={{ duration: 0.3 }}
-                      className="w-[85%] self-start rounded-xl border border-white/5 bg-zinc-900 p-4"
-                    >
-                      <p className="mb-2 font-mono text-xs text-zinc-500">
-                        Workflow State
-                      </p>
-                      <p className="text-sm text-zinc-300">
-                        &quot;{useCases[activeTab].mockup.interviewer}&quot;
-                      </p>
-                    </motion.div>
-                  </AnimatePresence>
-
-                  <AnimatePresence mode="wait">
-                    <motion.div
-                      key={`ai-${activeTab}`}
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -20 }}
-                      transition={{ duration: 0.3, delay: 0.1 }}
-                      className="w-[85%] self-end rounded-xl border p-4"
-                      style={{
-                        borderColor: "rgb(var(--brand-primary-rgb) / 0.3)",
-                        background:
-                          "linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.14), rgb(var(--brand-trust-rgb) / 0.16))",
-                        boxShadow:
-                          "0 0 20px -10px rgb(var(--brand-primary-rgb) / 0.45)",
-                      }}
-                    >
-                      <p
-                        className="mb-2 flex items-center gap-2 font-mono text-xs"
-                        style={{ color: "var(--brand-highlight)" }}
-                      >
-                        <span
-                          className="h-2 w-2 animate-pulse rounded-full"
-                        style={{ backgroundColor: "var(--brand-primary)" }}
-                        ></span>
-                        NextStop Action
-                      </p>
-                      <p className="text-sm text-zinc-100">
-                        {useCases[activeTab].mockup.ai}
-                      </p>
-                    </motion.div>
-                  </AnimatePresence>
+                <div className="mt-5 grid gap-4 md:grid-cols-[1.2fr_0.8fr] md:items-start">
+                  <p className="text-base leading-relaxed text-zinc-300">
+                    {step.description}
+                  </p>
+                  <div className="rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-zinc-400">
+                    {step.summary}
+                  </div>
                 </div>
-              </div>
-            </div>
+              </motion.article>
+            ))}
           </div>
         </div>
       </div>

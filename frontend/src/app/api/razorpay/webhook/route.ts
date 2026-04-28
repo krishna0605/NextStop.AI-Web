@@ -108,7 +108,7 @@ export async function POST(request: Request) {
     const accessState = mapWebhookStatusToAccessState(subscriptionStatus, currentPeriodEnd);
     const planCode = accessState === "active" ? SELF_SERVE_PLAN_CODE : "none";
 
-    await admin.from("billing_events").upsert(
+    const { error: billingEventError } = await admin.from("billing_events").upsert(
       {
         provider: "razorpay",
         provider_event_id: eventId,
@@ -124,8 +124,12 @@ export async function POST(request: Request) {
       }
     );
 
+    if (billingEventError) {
+      throw billingEventError;
+    }
+
     if (providerSubscriptionId && userIdFromNotes) {
-      await admin.from("subscriptions").upsert(
+      const { error: subscriptionError } = await admin.from("subscriptions").upsert(
         {
           id: crypto.randomUUID(),
           user_id: userIdFromNotes,
@@ -145,7 +149,11 @@ export async function POST(request: Request) {
         }
       );
 
-      await admin
+      if (subscriptionError) {
+        throw subscriptionError;
+      }
+
+      const { error: profileError } = await admin
         .from("profiles")
         .update({
           plan_code: planCode,
@@ -157,6 +165,10 @@ export async function POST(request: Request) {
           entitlement_updated_at: new Date().toISOString(),
         })
         .eq("id", userIdFromNotes);
+
+      if (profileError) {
+        throw profileError;
+      }
     }
 
     return NextResponse.json({ ok: true });

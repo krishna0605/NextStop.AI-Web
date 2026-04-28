@@ -10,91 +10,8 @@ import React, { useEffect, useState } from "react";
 
 import { createClient } from "@/lib/supabase-browser";
 import { Footer } from "@/components/Footer";
-
-const plans = [
-  {
-    name: "Starter",
-    description: "For solo users validating the workflow.",
-    monthlyPrice: 0,
-    yearlyPrice: 0,
-    popular: false,
-    features: [
-      "Guided Start Session launcher",
-      "Local recording and transcript history",
-      "Post-meeting summary, highlights, and tasks",
-      "Simple review mode",
-    ],
-    limitations: ["No related-meeting memory", "No Advanced mode toggle"],
-    cta: "Start for free",
-  },
-  {
-    name: "Pro Workflow",
-    description: "For operators running repeat product and engineering meetings.",
-    monthlyPrice: 29,
-    yearlyPrice: 19,
-    popular: true,
-    features: [
-      "Everything in Starter",
-      "Advanced mode toggle for deeper meeting controls",
-      "Google Calendar and Meet creation",
-      "Notion page-first sync plus markdown preview",
-      "Related-meeting memory and targeted regeneration",
-      "Advanced review diagnostics and exports",
-    ],
-    limitations: [],
-    cta: "Get Pro Access",
-  },
-  {
-    name: "Team",
-    description: "For teams standardizing meeting capture and follow-up.",
-    monthlyPrice: 99,
-    yearlyPrice: 79,
-    popular: false,
-    features: [
-      "Everything in Pro for 5 seats",
-      "Advanced mode for every seat",
-      "Shared workflow defaults and tags",
-      "Workspace-ready sync and routing support",
-      "Priority onboarding and support",
-    ],
-    limitations: [],
-    cta: "Contact Sales",
-  },
-];
-
-const featureMatrix = [
-  { feature: "Session launcher", starter: true, pro: true, team: true },
-  { feature: "Local recording", starter: true, pro: true, team: true },
-  { feature: "Post-meeting AI", starter: true, pro: true, team: true },
-  { feature: "Simple review mode", starter: true, pro: true, team: true },
-  { feature: "Advanced mode", starter: false, pro: true, team: true },
-  { feature: "Google Calendar sync", starter: false, pro: true, team: true },
-  { feature: "Notion page-first sync", starter: false, pro: true, team: true },
-  { feature: "Related-meeting memory", starter: false, pro: true, team: true },
-  { feature: "Targeted regeneration", starter: false, pro: true, team: true },
-  { feature: "Shared workflow defaults", starter: false, pro: false, team: true },
-  { feature: "Multi-seat management", starter: false, pro: false, team: true },
-  { feature: "Priority support", starter: false, pro: false, team: true },
-];
-
-const pricingFaqs = [
-  {
-    q: "Can I use NextStop for free?",
-    a: "Yes. The Starter plan gives you the full session launcher, local recording, and basic post-meeting AI at no cost. Upgrade when you need Advanced mode, workspace sync, or related-meeting memory.",
-  },
-  {
-    q: "What does 'related-meeting memory' mean?",
-    a: "Pro and Team plans can recall context from past meetings during post-meeting analysis. This enriches summaries, surfaces recurring decisions, and connects action items across multiple sessions.",
-  },
-  {
-    q: "Is there a free trial for Pro?",
-    a: "Pro Workflow includes a 14-day free trial with full access to all features. No credit card required to start.",
-  },
-  {
-    q: "How does Team billing work?",
-    a: "The Team plan covers 5 seats. Additional seats can be added at a per-seat rate. Contact sales for custom sizing and volume pricing.",
-  },
-];
+import { RollingPrice } from "@/components/Pricing";
+import { pricingFaqs, pricingFeatureMatrix, pricingPlans } from "@/lib/pricing-plans";
 
 const stagger = {
   hidden: {},
@@ -215,14 +132,14 @@ export default function PricingPage() {
               viewport={{ once: true }}
               className="mx-auto grid max-w-6xl grid-cols-1 gap-8 md:grid-cols-3"
             >
-              {plans.map((plan) => (
+              {pricingPlans.map((plan) => (
                 <motion.div
                   key={plan.name}
                   variants={fadeUp}
-                  className={`group relative flex flex-col overflow-hidden rounded-3xl ${
+                  className={`group relative flex h-full flex-col rounded-3xl ${
                     !plan.popular
-                      ? "hover-border-gradient border border-white/10 bg-zinc-950/92 p-8"
-                      : "shadow-[0_0_40px_-15px_rgba(242,129,69,0.24)]"
+                      ? "brand-card-hover"
+                      : "shadow-[0_0_40px_-15px_rgba(242,129,69,0.24)] md:-mt-4 md:mb-4"
                   }`}
                   style={
                     !plan.popular
@@ -230,93 +147,97 @@ export default function PricingPage() {
                       : undefined
                   }
                 >
-                  {plan.popular && (
-                    <>
-                      <div className="pointer-events-none absolute inset-0 bg-zinc-900/84" />
-                      <div
-                        className="absolute inset-0 z-0 opacity-90"
-                        style={{
-                          background:
-                            "linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.3), rgb(var(--brand-highlight-rgb) / 0.12) 45%, rgb(var(--brand-trust-rgb) / 0.24))",
-                        }}
-                      />
-                      <div className="pointer-events-none absolute inset-[1px] z-0 rounded-[calc(1.5rem-1px)] bg-zinc-950/96" />
-                    </>
-                  )}
-
                   <div
-                    className={`relative z-10 flex h-full w-full flex-col p-8 ${
-                      plan.popular ? "border border-white/8" : ""
+                    className={`relative flex h-full w-full flex-col overflow-hidden rounded-3xl ${
+                      !plan.popular ? "border border-white/10 bg-zinc-950/92 p-8" : ""
                     }`}
-                    style={
-                      plan.popular
-                        ? ({
-                            borderColor: "rgb(var(--brand-primary-rgb) / 0.18)",
-                            background:
-                              "linear-gradient(180deg, rgb(255 255 255 / 0.03), rgb(255 255 255 / 0.01))",
-                          } as React.CSSProperties)
-                        : undefined
-                    }
                   >
                     {plan.popular && (
-                      <div className="absolute left-1/2 top-0 z-20 mt-8 -translate-x-1/2 -translate-y-1/2">
-                        <span
-                          className="rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider text-black shadow-lg"
+                      <>
+                        <div className="pointer-events-none absolute inset-0 bg-zinc-900/84" />
+                        <div
+                          className="absolute inset-0 z-0 opacity-90"
                           style={{
-                            backgroundImage:
-                              "linear-gradient(135deg, var(--brand-primary), var(--brand-highlight))",
+                            background:
+                              "linear-gradient(135deg, rgb(var(--brand-primary-rgb) / 0.3), rgb(var(--brand-highlight-rgb) / 0.12) 45%, rgb(var(--brand-trust-rgb) / 0.24))",
                           }}
-                        >
-                          Most Popular
-                        </span>
-                      </div>
+                        />
+                        <div className="pointer-events-none absolute inset-[1px] z-0 rounded-[calc(1.5rem-1px)] bg-zinc-950/96" />
+                      </>
                     )}
 
-                    <div className="flex h-full flex-1 flex-col">
-                      <div className="flex flex-col items-start pb-6">
-                        <h3 className="mb-2 text-xl font-bold text-white">{plan.name}</h3>
-                        <p className="min-h-0 text-sm text-zinc-400">{plan.description}</p>
-                        <div className="mt-5 flex items-baseline text-white">
-                          <span className="text-4xl font-extrabold tracking-tight">
-                            ${isYearly ? plan.yearlyPrice : plan.monthlyPrice}
-                          </span>
-                          <span className="ml-1 font-medium text-zinc-500">/mo</span>
+                    <div
+                      className={`relative z-10 flex h-full w-full flex-col ${
+                        plan.popular ? "border border-white/8 p-8" : ""
+                      }`}
+                      style={
+                        plan.popular
+                          ? ({
+                              borderColor: "rgb(var(--brand-primary-rgb) / 0.18)",
+                              background:
+                                "linear-gradient(180deg, rgb(255 255 255 / 0.03), rgb(255 255 255 / 0.01))",
+                            } as React.CSSProperties)
+                          : undefined
+                      }
+                    >
+                      <div className="flex h-full flex-1 flex-col">
+                        <div className="flex flex-col items-start pb-6">
+                          <h3 className="mb-2 text-xl font-semibold text-white">{plan.name}</h3>
+                          <p className="min-h-0 text-sm text-zinc-400">{plan.description}</p>
+                          <div className="mt-5 flex items-baseline text-white">
+                            <span className="text-4xl font-extrabold tracking-tight">$</span>
+                            <RollingPrice value={isYearly ? plan.yearlyPrice : plan.monthlyPrice} />
+                            <span className="ml-1 font-medium text-zinc-500">/mo</span>
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="py-2">
-                        <ul className="space-y-4 text-sm text-zinc-300">
-                          {plan.features.map((feature, i) => (
-                            <li key={i} className="flex gap-3">
-                              <Check
-                                className="h-5 w-5 shrink-0"
-                                style={{ color: "var(--brand-primary)" }}
-                              />
-                              <span>{feature}</span>
-                            </li>
-                          ))}
-                          {plan.limitations.map((limitation, i) => (
-                            <li key={i} className="flex gap-3 text-zinc-500">
-                              <X className="h-5 w-5 shrink-0 text-zinc-600" />
-                              <span>{limitation}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
+                        <div className="py-2">
+                          <ul className="space-y-4 text-sm text-zinc-300">
+                            {plan.features.map((feature, i) => (
+                              <li key={i} className="flex gap-3">
+                                <Check
+                                  className="h-5 w-5 shrink-0"
+                                  style={{ color: "var(--brand-primary)" }}
+                                />
+                                <span>{feature}</span>
+                              </li>
+                            ))}
+                            {plan.limitations.map((limitation, i) => (
+                              <li key={i} className="flex gap-3 text-zinc-500">
+                                <X className="h-5 w-5 shrink-0 text-zinc-600" />
+                                <span>{limitation}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
 
-                      <div className="mt-8 flex justify-center">
-                        <Button
-                          onPress={() => handlePlanCta(plan.name)}
-                          radius="full"
-                          className={`h-10 min-w-[168px] px-8 font-semibold button-shine ${
-                            plan.popular ? "brand-button-primary" : "brand-button-secondary"
-                          }`}
-                        >
-                          {plan.cta}
-                        </Button>
+                        <div className="mt-8 flex justify-center">
+                          <Button
+                            onPress={() => handlePlanCta(plan.name)}
+                            radius="full"
+                            className={`h-10 min-w-[168px] px-8 font-semibold button-shine ${
+                              plan.popular ? "brand-button-primary" : "brand-button-secondary"
+                            }`}
+                          >
+                            {plan.cta}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </div>
+                  {plan.popular && (
+                    <div className="absolute left-1/2 -top-4 z-40 -translate-x-1/2">
+                      <div
+                        className="inline-block rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-black shadow-lg"
+                        style={{
+                          backgroundImage:
+                            "linear-gradient(135deg, var(--brand-primary), var(--brand-highlight))",
+                        }}
+                      >
+                        Most Popular
+                      </div>
+                    </div>
+                  )}
                 </motion.div>
               ))}
             </motion.div>
@@ -354,7 +275,7 @@ export default function PricingPage() {
                 </div>
 
                 {/* Rows */}
-                {featureMatrix.map((row) => (
+                {pricingFeatureMatrix.map((row) => (
                   <div
                     key={row.feature}
                     className="grid grid-cols-4 border-b border-white/5 transition-colors last:border-none hover:bg-white/[0.02]"
@@ -419,6 +340,7 @@ export default function PricingPage() {
                   size="lg"
                   radius="full"
                   className="brand-button-primary button-shine h-12 px-8 font-semibold"
+                  onPress={() => handlePlanCta("Starter")}
                 >
                   Start for Free
                 </Button>

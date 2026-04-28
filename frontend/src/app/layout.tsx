@@ -32,8 +32,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark overflow-x-hidden">
-      <body className="antialiased min-h-screen bg-black text-white w-full max-w-full overflow-x-hidden">
+    <html lang="en" className="dark">
+      <body className="antialiased min-h-screen bg-black text-white w-full max-w-full">
         <Providers>
           {children}
         </Providers>

@@ -59,26 +59,41 @@ jobs:
 
       - run: npm ci --workspaces=false
         working-directory: frontend
-      - run: npm run test:readiness -- ${{ env.BASE_URL }}
+      - run: npm run test:readiness -- ${{ env.BASE_URL }} --service-only
         working-directory: frontend
       - name: Certify launch decision
         id: certify_readiness
         shell: bash
         run: |
-          curl --fail --silent "${{ env.BASE_URL }}/api/health/readiness" > readiness.json
-          node <<'NODE'
+          HTTP_STATUS="$(curl --silent --show-error --output readiness.json --write-out "%{http_code}" "${{ env.BASE_URL }}/api/health/readiness")"
+          HTTP_STATUS="$HTTP_STATUS" node <<'NODE'
           const fs = require("fs");
           const payload = JSON.parse(fs.readFileSync("readiness.json", "utf8"));
+          const httpStatus = process.env.HTTP_STATUS;
+          if (!["200", "503"].includes(httpStatus)) {
+            throw new Error(`Unexpected readiness HTTP status: ${httpStatus}`);
+          }
           if (!["ready", "degraded", "blocked"].includes(payload.launchDecision)) {
             throw new Error("Readiness payload missing launchDecision");
           }
+          const allowedEvidenceBlockers = new Set([
+            "Hosted verification",
+            "Launch certification",
+            "Production observability",
+          ]);
+          const unexpectedBlockers = (payload.blockingFailures ?? []).filter(
+            (failure) => !allowedEvidenceBlockers.has(failure?.name)
+          );
+          if (unexpectedBlockers.length > 0) {
+            console.error(JSON.stringify(unexpectedBlockers, null, 2));
+            throw new Error("Readiness has non-evidence blockers.");
+          }
           if (payload.launchDecision === "blocked") {
-            console.error(JSON.stringify(payload.blockingFailures ?? [], null, 2));
-            process.exit(1);
+            console.warn(JSON.stringify(payload.blockingFailures ?? [], null, 2));
           }
           fs.appendFileSync(
             process.env.GITHUB_STEP_SUMMARY,
-            `- Launch decision: ${payload.launchDecision}\n- Frontend version: ${payload.versions?.frontendVersion ?? "unknown"}\n- Worker version: ${payload.versions?.workerVersion ?? "unknown"}\n- Blocking failures: ${(payload.blockingFailures ?? []).length}\n- Warnings: ${(payload.warnings ?? []).length}\n`
+            `- Launch decision: ${payload.launchDecision}\n- Readiness HTTP status: ${httpStatus}\n- Frontend version: ${payload.versions?.frontendVersion ?? "unknown"}\n- Worker version: ${payload.versions?.workerVersion ?? "unknown"}\n- Blocking failures: ${(payload.blockingFailures ?? []).length}\n- Warnings: ${(payload.warnings ?? []).length}\n`
           );
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `launch_decision=${payload.launchDecision}\n`);
           NODE
@@ -248,8 +263,21 @@ jobs:
           name: hosted-verification-payload
           path: hosted-verification.json
 
+      - name: Require hosted verification publish configuration
+        if: ${{ env.BASE_URL != '' }}
+        shell: bash
+        run: |
+          if [ -z "${BACKEND_HEALTH_URL}" ]; then
+            echo "BACKEND_HEALTH_URL is required to publish hosted verification status." >&2
+            exit 1
+          fi
+          if [ -z "${AI_CORE_SHARED_SECRET}" ]; then
+            echo "AI_CORE_SHARED_SECRET is required to publish hosted verification status." >&2
+            exit 1
+          fi
+
       - name: Publish hosted verification to backend runtime status
-        if: ${{ env.BACKEND_HEALTH_URL != '' && env.AI_CORE_SHARED_SECRET != '' }}
+        if: ${{ env.BASE_URL != '' }}
         shell: bash
         run: |
           RUNTIME_BASE="${BACKEND_HEALTH_URL%/health}"
@@ -260,24 +288,143 @@ jobs:
             "${RUNTIME_BASE}/runtime/hosted-verification" \
             --data @hosted-verification.json > /dev/null
 
+      - name: Verify hosted verification publish
+        if: ${{ env.BASE_URL != '' }}
+        shell: bash
+        run: |
+          RUNTIME_BASE="${BACKEND_HEALTH_URL%/health}"
+          curl --fail --silent --show-error "${RUNTIME_BASE}/health" > backend-health-after-hosted.json
+          READINESS_STATUS="$(curl --silent --show-error --output readiness-after-hosted.json --write-out "%{http_code}" "${BASE_URL}/api/health/readiness")"
+          READINESS_STATUS="$READINESS_STATUS" node <<'NODE'
+          const fs = require("fs");
+          const hosted = JSON.parse(fs.readFileSync("hosted-verification.json", "utf8"));
+          const backend = JSON.parse(fs.readFileSync("backend-health-after-hosted.json", "utf8"));
+          const readiness = JSON.parse(fs.readFileSync("readiness-after-hosted.json", "utf8"));
+          const readinessStatus = process.env.READINESS_STATUS;
+
+          if (backend.hostedVerification?.lastHostedVerificationStatus !== hosted.status) {
+            throw new Error("Backend health did not reflect the published hosted verification status.");
+          }
+
+          if (hosted.status === "pass") {
+            const hostedCheck = (readiness.productionEvidenceChecks ?? []).find(
+              (entry) => entry?.name === "Hosted verification"
+            );
+            const hostedBlocker = (readiness.blockingFailures ?? []).find(
+              (entry) => entry?.name === "Hosted verification"
+            );
+
+            if (readiness.hostedVerification?.lastHostedVerificationStatus !== "pass") {
+              throw new Error("Readiness did not expose hosted verification pass status.");
+            }
+
+            if (hostedCheck?.status !== "pass") {
+              throw new Error("Readiness hosted verification evidence check is not passing.");
+            }
+
+            if (hostedBlocker) {
+              throw new Error("Readiness still lists Hosted verification as a blocker.");
+            }
+          }
+
+          fs.appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            `- Hosted verification publish verified: ${hosted.status}\n- Readiness after hosted publish HTTP status: ${readinessStatus}\n`
+          );
+          NODE
+
+      - name: Validate launch certification prerequisites
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.certify_launch }}
+        shell: bash
+        env:
+          READINESS_RESULT: ${{ needs.readiness-check.result }}
+          BACKEND_RESULT: ${{ needs.backend-health.result }}
+          PREVIEW_RESULT: ${{ needs.preview-smoke.result }}
+        run: |
+          node <<'NODE'
+          const fs = require("fs");
+          const hosted = JSON.parse(fs.readFileSync("hosted-verification.json", "utf8"));
+          const readiness = JSON.parse(fs.readFileSync("readiness-after-hosted.json", "utf8"));
+
+          const productionEvidenceChecks = readiness.productionEvidenceChecks ?? [];
+          const blockingFailures = readiness.blockingFailures ?? [];
+          const hostedCheck = productionEvidenceChecks.find(
+            (entry) => entry?.name === "Hosted verification"
+          );
+          const productionObservabilityCheck = productionEvidenceChecks.find(
+            (entry) => entry?.name === "Production observability"
+          );
+          const unexpectedBlockers = blockingFailures.filter(
+            (entry) => entry?.name !== "Launch certification"
+          );
+
+          const hostedVerificationPassed =
+            hosted.status === "pass" &&
+            hostedCheck?.status === "pass" &&
+            readiness.hostedVerification?.lastHostedVerificationStatus === "pass";
+          const productionObservabilityReady =
+            productionObservabilityCheck?.status === "pass" &&
+            readiness.aiCoreHealth?.observability?.environment === "production" &&
+            readiness.aiCoreHealth?.observability?.sentryConfigured === true &&
+            readiness.aiCoreHealth?.observability?.otlpConfigured === true;
+          const readinessServiceGreen = process.env.READINESS_RESULT === "success";
+          const backendGreen = process.env.BACKEND_RESULT === "success";
+          const smokeGreen = process.env.PREVIEW_RESULT === "success";
+          const noUnexpectedBlockers = unexpectedBlockers.length === 0;
+          const operationalProofComplete =
+            backendGreen && smokeGreen && productionObservabilityReady;
+          const validationGreen =
+            readinessServiceGreen &&
+            backendGreen &&
+            smokeGreen &&
+            productionObservabilityReady &&
+            noUnexpectedBlockers;
+          const certifiable =
+            validationGreen && hostedVerificationPassed && operationalProofComplete;
+
+          const prerequisites = {
+            certifiable,
+            validationGreen,
+            hostedVerificationPassed,
+            operationalProofComplete,
+            readinessServiceGreen,
+            backendGreen,
+            smokeGreen,
+            productionObservabilityReady,
+            noUnexpectedBlockers,
+            unexpectedBlockers: unexpectedBlockers.map((entry) => ({
+              name: entry?.name ?? "unknown",
+              detail: entry?.detail ?? null,
+            })),
+          };
+
+          fs.writeFileSync(
+            "launch-certification-prerequisites.json",
+            JSON.stringify(prerequisites, null, 2)
+          );
+          fs.appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            `- Launch certifiable: ${prerequisites.certifiable}\n- Production observability ready: ${prerequisites.productionObservabilityReady}\n- Unexpected readiness blockers before certification: ${prerequisites.unexpectedBlockers.length}\n`
+          );
+          NODE
+
+      - name: Upload launch certification prerequisites artifact
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.certify_launch }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-certification-prerequisites
+          path: launch-certification-prerequisites.json
+
       - name: Build launch certification payload
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.certify_launch }}
         shell: bash
         run: |
           node <<'NODE'
           const fs = require("fs");
-          const hosted = JSON.parse(fs.readFileSync("hosted-verification.json", "utf8"));
-          const validationGreen =
-            process.env.READINESS_RESULT === "success" &&
-            process.env.BACKEND_RESULT === "success" &&
-            process.env.PREVIEW_RESULT === "success";
-          const hostedVerificationPassed = hosted.status === "pass";
-          const operationalProofComplete =
-            process.env.BACKEND_RESULT === "success" && process.env.PREVIEW_RESULT === "success";
-          const status =
-            validationGreen && hostedVerificationPassed && operationalProofComplete
-              ? "certified"
-              : "blocked";
+          const prerequisites = JSON.parse(
+            fs.readFileSync("launch-certification-prerequisites.json", "utf8")
+          );
+          const status = prerequisites.certifiable ? "certified" : "blocked";
 
           const payload = {
             status,
@@ -287,9 +434,9 @@ jobs:
               (status === "certified"
                 ? "Launch certification issued from post-deploy verification."
                 : "Launch certification attempted before all evidence was green."),
-            validationGreen,
-            hostedVerificationPassed,
-            operationalProofComplete,
+            validationGreen: prerequisites.validationGreen,
+            hostedVerificationPassed: prerequisites.hostedVerificationPassed,
+            operationalProofComplete: prerequisites.operationalProofComplete,
             readinessLaunchDecision: process.env.LAUNCH_DECISION || null,
             lastLaunchCertificationAt: new Date().toISOString(),
           };
@@ -301,9 +448,6 @@ jobs:
           );
           NODE
         env:
-          READINESS_RESULT: ${{ needs.readiness-check.result }}
-          BACKEND_RESULT: ${{ needs.backend-health.result }}
-          PREVIEW_RESULT: ${{ needs.preview-smoke.result }}
           CERTIFICATION_OWNER: ${{ inputs.certification_owner }}
           CERTIFICATION_NOTES: ${{ inputs.certification_notes }}
           LAUNCH_DECISION: ${{ needs.readiness-check.outputs.launch_decision }}
@@ -326,6 +470,67 @@ jobs:
             -X POST \
             "${RUNTIME_BASE}/runtime/launch-certification" \
             --data @launch-certification.json > /dev/null
+
+      - name: Verify launch certification publish
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.certify_launch && env.BACKEND_HEALTH_URL != '' && env.AI_CORE_SHARED_SECRET != '' }}
+        shell: bash
+        run: |
+          RUNTIME_BASE="${BACKEND_HEALTH_URL%/health}"
+          curl --fail --silent --show-error "${RUNTIME_BASE}/health" > backend-health-after-launch-certification.json
+          READINESS_STATUS="$(curl --silent --show-error --output readiness-after-launch-certification.json --write-out "%{http_code}" "${BASE_URL}/api/health/readiness")"
+          READINESS_STATUS="$READINESS_STATUS" node <<'NODE'
+          const fs = require("fs");
+          const certification = JSON.parse(fs.readFileSync("launch-certification.json", "utf8"));
+          const backend = JSON.parse(
+            fs.readFileSync("backend-health-after-launch-certification.json", "utf8")
+          );
+          const readiness = JSON.parse(
+            fs.readFileSync("readiness-after-launch-certification.json", "utf8")
+          );
+          const readinessStatus = process.env.READINESS_STATUS;
+
+          if (
+            backend.launchCertification?.lastLaunchCertificationStatus !==
+            certification.status
+          ) {
+            throw new Error("Backend health did not reflect the published launch certification status.");
+          }
+
+          if (certification.status === "certified") {
+            const launchCertificationCheck = (readiness.productionEvidenceChecks ?? []).find(
+              (entry) => entry?.name === "Launch certification"
+            );
+            const launchCertificationBlocker = (readiness.blockingFailures ?? []).find(
+              (entry) => entry?.name === "Launch certification"
+            );
+
+            if (readinessStatus !== "200") {
+              throw new Error(`Readiness after launch certification returned HTTP ${readinessStatus}.`);
+            }
+            if (readiness.launchDecision !== "ready") {
+              throw new Error("Readiness launchDecision is not ready after launch certification.");
+            }
+            if (
+              readiness.launchCertification?.lastLaunchCertificationStatus !== "certified" ||
+              readiness.launchCertification?.validationGreen !== true ||
+              readiness.launchCertification?.hostedVerificationPassed !== true ||
+              readiness.launchCertification?.operationalProofComplete !== true
+            ) {
+              throw new Error("Readiness did not expose complete launch certification proof.");
+            }
+            if (launchCertificationCheck?.status !== "pass") {
+              throw new Error("Readiness launch certification evidence check is not passing.");
+            }
+            if (launchCertificationBlocker) {
+              throw new Error("Readiness still lists Launch certification as a blocker.");
+            }
+          }
+
+          fs.appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            `- Launch certification publish verified: ${certification.status}\n- Readiness after launch certification HTTP status: ${readinessStatus}\n`
+          );
+          NODE
 
       - name: Write launch summary
         shell: bash

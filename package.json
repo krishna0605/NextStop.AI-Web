@@ -5,6 +5,9 @@
     "frontend",
     "backend"
   ],
+  "overrides": {
+    "postcss": "8.5.12"
+  },
   "scripts": {
     "up": "node scripts/up.mjs",
     "up:build": "node scripts/up.mjs --build",
@@ -20,6 +23,7 @@
     "logs:cleanup": "docker compose -f docker-compose.local.yml -f docker-compose.local.dev.yml -f docker-compose.local.observability.yml logs -f backend-cleanup",
     "ps": "docker compose -f docker-compose.local.yml -f docker-compose.local.dev.yml -f docker-compose.local.observability.yml ps",
     "health": "node scripts/health.mjs",
+    "security:audit": "node scripts/audit-production.mjs",
     "dev:frontend": "npm --prefix frontend run dev",
     "build:frontend": "npm --prefix frontend run build",
     "typecheck:frontend": "npx tsc --noEmit -p frontend/tsconfig.json",

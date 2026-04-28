@@ -37,7 +37,7 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - run: npm ci
-      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run security:audit
       - run: npm ls --omit=dev --json > dependency-inventory.json
 
       - uses: actions/upload-artifact@v4

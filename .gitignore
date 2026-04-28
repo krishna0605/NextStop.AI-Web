@@ -15,6 +15,7 @@
 **/playwright-report
 **/test-results
 /artifacts
+backend/backend-vitest-results.json
 
 # next.js
 **/.next/
@@ -66,9 +67,16 @@ local-stack-access.txt
 dev-check.log
 webpack-dev.log
 tmp_template_export.pdf
+frontend/output/
+frontend/.playwright-cli/
 
 # internal or sensitive project documentation
-docs/
+docs/*
+!docs/*readiness*audit*.md
+!docs/*production-readiness*.md
+!docs/dependency-risk-acceptance*.md
+!docs/abuse-control-inventory*.md
+!docs/release-verification*.md
 
 # local backend helper state
 backend/supabase/.temp/

@@ -38,10 +38,10 @@ const faqs = [
 
 export function FAQ() {
   return (
-    <section id="faq" className="relative bg-transparent py-24">
+    <section id="faq" className="relative bg-transparent py-14">
       <div className="container mx-auto px-4 md:px-6">
-        <div className="mx-auto mb-16 max-w-2xl text-center">
-          <h2 className="font-heading mb-4 text-3xl font-bold text-white md:text-5xl">
+        <div className="mx-auto mb-10 max-w-2xl text-center">
+          <h2 className="font-heading mb-4 text-3xl font-semibold tracking-[-0.02em] text-white md:text-5xl">
             Frequently Asked Questions
           </h2>
           <p className="text-lg text-zinc-400">

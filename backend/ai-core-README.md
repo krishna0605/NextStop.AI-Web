@@ -19,12 +19,20 @@ Recommended deployment split:
 Expected env:
 
 - `PORT`
+- `NODE_ENV=production`
 - `REDIS_URL`
 - `AI_CORE_SHARED_SECRET`
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `DEEPGRAM_API_KEY`
 - `OPENAI_API_KEY`
+- `SENTRY_DSN`
+- `SENTRY_ENVIRONMENT=production`
+- `SENTRY_RELEASE` or `RELEASE_VERSION`
+- `SENTRY_TRACES_SAMPLE_RATE=0.05`
+- `OTEL_SERVICE_NAME=nextstop-ai-core-api`
+- `OTEL_EXPORTER_OTLP_ENDPOINT`
+- `OTEL_EXPORTER_OTLP_HEADERS` if the collector requires auth
 
 Current job contract:
 
@@ -35,3 +43,5 @@ Current job contract:
 - `GET /jobs/:jobId`
 
 This scaffold mirrors the web app contract under `src/app/api/workspace/meetings/*` and is now aligned to a transcription-first lifecycle instead of the earlier generic finalize flow.
+
+Production launch readiness depends on the `/health` observability payload proving Sentry and OTLP are configured. See [../docs/production-observability-runbook.md](../docs/production-observability-runbook.md).

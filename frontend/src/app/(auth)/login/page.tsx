@@ -219,6 +219,17 @@ function LoginForm() {
             Sign up
           </Link>
         </p>
+        <p className="mt-4 text-center text-xs leading-relaxed text-zinc-500">
+          Use of NextStop.ai is governed by the{" "}
+          <Link href="/terms" className="brand-link text-zinc-300">
+            Terms
+          </Link>{" "}
+          and{" "}
+          <Link href="/privacy" className="brand-link text-zinc-300">
+            Privacy Policy
+          </Link>
+          .
+        </p>
       </div>
     </motion.div>
   );
