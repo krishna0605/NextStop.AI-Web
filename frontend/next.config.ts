@@ -8,6 +8,9 @@ const appOrigin = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ?? "";
 const backendOrigin = process.env.NEXT_PUBLIC_BACKEND_API_URL?.replace(/\/$/, "") ?? "";
 const sentryDsn =
   process.env.NEXT_PUBLIC_SENTRY_DSN?.trim() || process.env.SENTRY_DSN?.trim() || "";
+const cspReportUri =
+  process.env.CSP_REPORT_URI?.trim() ||
+  (process.env.VERCEL_ENV === "production" ? "/api/security/csp-report" : "");
 const connectSrc = ["'self'"];
 const isDevelopment = process.env.NODE_ENV === "development";
 
@@ -31,22 +34,41 @@ if (sentryDsn) {
   }
 }
 
+const enforcedCsp = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data: https:",
+  "style-src 'self' 'unsafe-inline' https:",
+  `script-src 'self' 'unsafe-inline' ${isDevelopment ? "'unsafe-eval' " : ""}https:`,
+  `connect-src ${Array.from(new Set(connectSrc)).join(" ")}`,
+  "media-src 'self' blob: https:",
+].join("; ");
+
+const reportOnlyCsp = [
+  enforcedCsp,
+  "require-trusted-types-for 'script'",
+  "trusted-types nextstop default",
+  cspReportUri ? `report-uri ${cspReportUri}` : "",
+]
+  .filter(Boolean)
+  .join("; ");
+
 const securityHeaders = [
   {
     key: "Content-Security-Policy",
-    value: [
-      "default-src 'self'",
-      "base-uri 'self'",
-      "frame-ancestors 'none'",
-      "object-src 'none'",
-      "img-src 'self' data: blob: https:",
-      "font-src 'self' data: https:",
-      "style-src 'self' 'unsafe-inline' https:",
-      `script-src 'self' 'unsafe-inline' ${isDevelopment ? "'unsafe-eval' " : ""}https:`,
-      `connect-src ${Array.from(new Set(connectSrc)).join(" ")}`,
-      "media-src 'self' blob: https:",
-    ].join("; "),
+    value: enforcedCsp,
   },
+  ...(cspReportUri
+    ? [
+        {
+          key: "Content-Security-Policy-Report-Only",
+          value: reportOnlyCsp,
+        },
+      ]
+    : []),
   {
     key: "Referrer-Policy",
     value: "strict-origin-when-cross-origin",

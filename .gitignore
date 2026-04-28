@@ -77,6 +77,8 @@ docs/*
 !docs/dependency-risk-acceptance*.md
 !docs/abuse-control-inventory*.md
 !docs/release-verification*.md
+!docs/legal-review-checklist*.md
+!docs/README.md
 
 # local backend helper state
 backend/supabase/.temp/

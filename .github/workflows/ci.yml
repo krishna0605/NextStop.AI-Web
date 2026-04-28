@@ -7,6 +7,7 @@ on:
       - main
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   APP_URL: http://127.0.0.1:3100
   NEXT_PUBLIC_APP_URL: http://127.0.0.1:3100
   NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
@@ -102,7 +103,7 @@ jobs:
         working-directory: frontend
       - run: npx playwright install --with-deps chromium
         working-directory: frontend
-      - run: npm run test:e2e -- tests/e2e/smoke.spec.ts
+      - run: npm run test:e2e -- tests/e2e/smoke.spec.ts tests/e2e/marketing-pricing.spec.ts
         working-directory: frontend
 
       - uses: actions/upload-artifact@v4

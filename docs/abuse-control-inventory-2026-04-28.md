@@ -18,7 +18,21 @@ This inventory documents the current abuse-control posture so the security score
 | Web readiness | False production readiness | Production evidence gate, hosted verification, launch certification, observability checks | Readiness route tests cover production and non-production modes | Verify after deployment with live evidence payloads |
 | Desktop sync APIs | Cross-user meeting access, malformed sync payloads | Bearer user auth, user-scoped Supabase filters | Backend route tests cover bootstrap auth, bootstrap success, device validation, and output sync | Add broader cross-user destructive-action tests as desktop routes expand |
 | Transcript/download/export routes | Unauthorized data access, export abuse | User-scoped lookups, transcript storage mode checks | Route coverage includes meeting upload ownership and lifecycle dependency failures | Add explicit download/export throttling before public scale |
-| Provider infrastructure | Volumetric abuse and scraping | Vercel/Railway/provider perimeter controls, Supabase limits | Operational dependency, not fully repo-verifiable | Document configured provider limits during launch certification |
+| Provider infrastructure | Volumetric abuse and scraping | Vercel/Railway/provider perimeter controls, Supabase limits | Operational dependency, tracked below as launch evidence | Document configured provider limits during launch certification |
+
+## Provider Evidence Checklist
+
+Production launch certification should attach proof for each provider-level control. These are intentionally evidence fields, not vague TODOs.
+
+| Provider Surface | Required Evidence | Evidence Owner | Launch Status |
+|---|---|---|---|
+| Vercel Firewall or equivalent | Screenshot/link showing request filtering rules, bot/DDoS protections, and any path-specific throttles for `/api/*`. | NextStop AI maintainer | Required before `certified` launch. |
+| Railway backend exposure | Screenshot/link showing public service URL, health route exposure, resource limits, restart policy, and any request/connection controls available in the plan. | NextStop AI maintainer | Required before `certified` launch. |
+| Supabase auth abuse protections | Screenshot/link showing email/password/OAuth rate controls, abuse protection settings, redirect URL allowlist, and enabled providers. | NextStop AI maintainer | Required before `certified` launch. |
+| Razorpay webhook controls | Screenshot/link showing webhook endpoint, signing secret configured, retry/failure dashboard visibility, and alert owner. | NextStop AI maintainer | Required before `certified` launch. |
+| Sentry/OTLP abuse alerting | Screenshot/link showing production environment ingestion, alert/monitor owner, and at least one health/trace event from the current release. | NextStop AI maintainer | Required before `certified` launch. |
+
+If a provider does not expose a native control at the current plan level, record that as an explicit accepted launch risk with owner, expiry, and compensating control.
 
 ## Routes That Should Have App-Level Rate Limits Next
 

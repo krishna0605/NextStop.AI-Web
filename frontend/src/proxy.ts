@@ -1,8 +1,44 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+
 import { getSupabasePublicUrl } from "@/lib/env";
+import { validateTrustedMutationOrigin } from "@/lib/trusted-origin";
+
+const MUTATION_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+const ORIGIN_GUARD_EXEMPT_PATHS = [
+  "/api/razorpay/webhook",
+  "/api/internal/ai/",
+  "/api/workspace/notion/callback",
+];
+
+function isOriginGuardExempt(pathname: string) {
+  return ORIGIN_GUARD_EXEMPT_PATHS.some((path) =>
+    path.endsWith("/") ? pathname.startsWith(path) : pathname === path
+  );
+}
 
 export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  if (
+    pathname.startsWith("/api/") &&
+    MUTATION_METHODS.has(request.method.toUpperCase()) &&
+    !isOriginGuardExempt(pathname)
+  ) {
+    const origin = validateTrustedMutationOrigin(request);
+
+    if (!origin.trusted) {
+      return NextResponse.json(
+        {
+          error: "Untrusted request origin.",
+          code: "untrusted_origin",
+        },
+        { status: 403 }
+      );
+    }
+  }
+
   const supabaseUrl = getSupabasePublicUrl();
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 

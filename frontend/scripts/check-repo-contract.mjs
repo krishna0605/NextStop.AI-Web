@@ -63,6 +63,10 @@ async function ensureNoForbiddenTrackedFiles() {
 async function main() {
   await ensureRequiredFilesExist();
   await ensureNoForbiddenTrackedFiles();
+  await execFileAsync("node", ["scripts/check-browser-storage-keys.mjs"], {
+    cwd: path.join(repoRoot, "frontend"),
+    encoding: "utf8",
+  });
   console.log("Repository contract checks passed.");
 }
 

@@ -38,6 +38,7 @@ on:
       - main
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.base_url || vars.PRODUCTION_BASE_URL }}
   BACKEND_HEALTH_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.backend_health_url || vars.BACKEND_HEALTH_URL }}
   AI_CORE_SHARED_SECRET: ${{ secrets.AI_CORE_SHARED_SECRET }}
@@ -108,10 +109,40 @@ jobs:
     needs: readiness-check
     steps:
       - name: Verify backend worker and cleanup health
+        shell: bash
         run: |
           curl --fail --silent "${{ env.BACKEND_HEALTH_URL }}" > backend-health.json
-          node -e "const fs = require('fs'); const payload = JSON.parse(fs.readFileSync('backend-health.json', 'utf8')); if (payload.workerReady !== true || payload.directExecution !== true || payload.workerStale === true) { console.error(JSON.stringify(payload, null, 2)); throw new Error('Backend worker is not healthy enough for certification'); } if (payload.cleanup?.lastCleanupError) { console.error(JSON.stringify(payload.cleanup, null, 2)); throw new Error('Cleanup worker reported an error'); } fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `- Backend worker ready: ${payload.workerReady}\n- Backend direct execution: ${payload.directExecution}\n- Worker stale: ${payload.workerStale}\n- Last cleanup success: ${payload.cleanup?.lastCleanupSuccessAt ?? 'unknown'}\n`);"
+          node <<'NODE'
+          const fs = require("fs");
+          const payload = JSON.parse(fs.readFileSync("backend-health.json", "utf8"));
+
+          if (
+            payload.workerReady !== true ||
+            payload.directExecution !== true ||
+            payload.workerStale === true
+          ) {
+            console.error(JSON.stringify(payload, null, 2));
+            throw new Error("Backend worker is not healthy enough for certification");
+          }
+
+          if (payload.cleanup?.lastCleanupError) {
+            console.error(JSON.stringify(payload.cleanup, null, 2));
+            throw new Error("Cleanup worker reported an error");
+          }
+
+          fs.appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            [
+              `- Backend worker ready: ${payload.workerReady}`,
+              `- Backend direct execution: ${payload.directExecution}`,
+              `- Worker stale: ${payload.workerStale}`,
+              `- Last cleanup success: ${payload.cleanup?.lastCleanupSuccessAt ?? "unknown"}`,
+              "",
+            ].join("\n")
+          );
+          NODE
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: backend-health-payload
           path: backend-health.json
@@ -156,6 +187,43 @@ jobs:
       - preview-smoke
     if: always()
     steps:
+      - name: Preflight production publish configuration
+        if: ${{ env.BASE_URL != '' }}
+        shell: bash
+        run: |
+          missing=0
+          echo "## Runtime evidence publish configuration" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "${BASE_URL}" ]; then
+            echo "- Missing repository variable: PRODUCTION_BASE_URL" >> "$GITHUB_STEP_SUMMARY"
+            missing=1
+          else
+            echo "- PRODUCTION_BASE_URL/base_url: configured" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -z "${BACKEND_HEALTH_URL}" ]; then
+            echo "- Missing repository variable or workflow input: BACKEND_HEALTH_URL / backend_health_url" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Missing BACKEND_HEALTH_URL::Set GitHub Actions repository variable BACKEND_HEALTH_URL to the Railway backend /health URL, or pass backend_health_url when using workflow_dispatch."
+            missing=1
+          else
+            echo "- BACKEND_HEALTH_URL/backend_health_url: configured" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -z "${AI_CORE_SHARED_SECRET}" ]; then
+            echo "- Missing repository secret: AI_CORE_SHARED_SECRET" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Missing AI_CORE_SHARED_SECRET::Set GitHub Actions repository secret AI_CORE_SHARED_SECRET to the same value configured on the Railway backend service."
+            missing=1
+          else
+            echo "- AI_CORE_SHARED_SECRET: configured" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ "$missing" -ne 0 ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Production certification is strict: hosted verification and launch certification cannot pass without backend publish configuration." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
       - name: Build hosted verification payload
         shell: bash
         env:
@@ -268,11 +336,11 @@ jobs:
         shell: bash
         run: |
           if [ -z "${BACKEND_HEALTH_URL}" ]; then
-            echo "BACKEND_HEALTH_URL is required to publish hosted verification status." >&2
+            echo "::error title=Missing BACKEND_HEALTH_URL::Set GitHub Actions repository variable BACKEND_HEALTH_URL to the Railway backend /health URL, or pass backend_health_url when using workflow_dispatch."
             exit 1
           fi
           if [ -z "${AI_CORE_SHARED_SECRET}" ]; then
-            echo "AI_CORE_SHARED_SECRET is required to publish hosted verification status." >&2
+            echo "::error title=Missing AI_CORE_SHARED_SECRET::Set GitHub Actions repository secret AI_CORE_SHARED_SECRET to the same value configured on the Railway backend service."
             exit 1
           fi
 

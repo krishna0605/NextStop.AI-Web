@@ -3,6 +3,8 @@
 ## Accepted Advisory
 
 - Advisory: `GHSA-qx2v-qp2m-jg93`
+- Advisory link: https://github.com/advisories/GHSA-qx2v-qp2m-jg93
+- OSV link: https://osv.dev/vulnerability/GHSA-qx2v-qp2m-jg93
 - Package: `postcss`
 - Reported path: `next@16.2.4 -> postcss@8.4.31`
 - Severity: Moderate
