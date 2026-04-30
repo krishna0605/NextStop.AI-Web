@@ -14,7 +14,9 @@ describe("pricing plan claims", () => {
     ]);
     expect(pricingPlans.every((plan) => plan.cta.length > 0)).toBe(true);
     expect(pricingPlans.every((plan) => plan.features.length > 0)).toBe(true);
+    expect(pricingPlans.every((plan) => plan.trustNotes.length > 0)).toBe(true);
     expect(pricingFaqs.length).toBeGreaterThanOrEqual(4);
+    expect(pricingFaqs[0].a).not.toMatch(/local recording/i);
   });
 
   it("does not claim desktop-only capabilities for the Starter plan", () => {

@@ -583,6 +583,13 @@ export const smokeOpsReadinessData: OpsReadinessData = {
 export const smokeDashboardHomeData: DashboardHomeData = {
   google: smokeGoogleReconnectRecord,
   notion: smokeNotionNeedsDestinationRecord,
+  latestAiJob: smokeAiStatusProcessing.latestJob,
+  aiQueueStatus: {
+    queuedCount: 1,
+    runningCount: 1,
+    failedCount: 0,
+    cancelRequestedCount: 0,
+  },
   providerStatus: smokeWorkspaceOverview.providerStatus,
 };
 

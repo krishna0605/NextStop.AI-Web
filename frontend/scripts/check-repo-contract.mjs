@@ -67,6 +67,10 @@ async function main() {
     cwd: path.join(repoRoot, "frontend"),
     encoding: "utf8",
   });
+  await execFileAsync("node", ["scripts/check-route-inventory.mjs"], {
+    cwd: path.join(repoRoot, "frontend"),
+    encoding: "utf8",
+  });
   console.log("Repository contract checks passed.");
 }
 

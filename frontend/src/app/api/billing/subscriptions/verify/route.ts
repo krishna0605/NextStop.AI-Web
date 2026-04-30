@@ -2,9 +2,10 @@ import crypto from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import { type AccessState, SELF_SERVE_PLAN_CODE, sanitizeNextPath } from "@/lib/billing";
+import { type AccessState, SELF_SERVE_PLAN_CODE } from "@/lib/billing";
 import { internalServerErrorResponse } from "@/lib/http";
 import { razorpayRequest, toIsoFromUnixSeconds, verifySubscriptionCheckoutSignature } from "@/lib/razorpay";
+import { parseSafeNextPath } from "@/lib/route-validation";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient } from "@/lib/supabase-server";
 
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
       razorpay_signature?: string;
       nextPath?: string;
     };
-    const nextPath = sanitizeNextPath(body.nextPath, "/dashboard");
+    const nextPath = parseSafeNextPath(body.nextPath, "/dashboard");
 
     if (
       !body.razorpay_payment_id ||

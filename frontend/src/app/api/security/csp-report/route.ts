@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/nextjs";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -63,9 +64,19 @@ export async function POST(request: Request) {
 
   try {
     const payload = rawBody ? JSON.parse(rawBody) : {};
-    console.warn("[security] CSP report-only violation", scrubReport(payload));
+    const report = scrubReport(payload);
+    console.warn("[security] CSP report-only violation", report);
+    Sentry.captureMessage("CSP report-only violation", {
+      level: "warning",
+      extra: {
+        cspReport: report,
+      },
+    });
   } catch {
     console.warn("[security] Malformed CSP report-only violation");
+    Sentry.captureMessage("Malformed CSP report-only violation", {
+      level: "warning",
+    });
   }
 
   return new Response(null, { status: 204 });

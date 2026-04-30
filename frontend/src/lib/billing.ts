@@ -112,11 +112,25 @@ export function sanitizeNextPath(
   nextPath: string | null | undefined,
   fallback = "/dashboard"
 ): string {
-  if (!nextPath || !nextPath.startsWith("/") || nextPath.startsWith("//")) {
+  if (
+    !nextPath ||
+    !nextPath.startsWith("/") ||
+    nextPath.startsWith("//") ||
+    /[\r\n]/.test(nextPath)
+  ) {
     return fallback;
   }
 
-  return nextPath;
+  try {
+    const decoded = decodeURIComponent(nextPath);
+    if (!decoded.startsWith("/") || decoded.startsWith("//") || /[\r\n]/.test(decoded)) {
+      return fallback;
+    }
+  } catch {
+    return fallback;
+  }
+
+  return nextPath.trim();
 }
 
 export function getDaysRemaining(dateString: string | null | undefined): number {
@@ -153,4 +167,3 @@ export function formatDateLabel(dateString: string | null | undefined): string |
 }
 
 export const SELF_SERVE_PLAN_CODE: PlanCode = "pro_monthly";
-

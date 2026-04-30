@@ -320,6 +320,13 @@ export interface WorkspaceOverview {
 export interface DashboardHomeData {
   google: IntegrationRecord | null;
   notion: IntegrationRecord | null;
+  latestAiJob: AiJobRecord | null;
+  aiQueueStatus: {
+    queuedCount: number;
+    runningCount: number;
+    failedCount: number;
+    cancelRequestedCount: number;
+  };
   providerStatus: WorkspaceProviderStatus;
 }
 

@@ -6,8 +6,23 @@ export type PricingPlan = {
   popular: boolean;
   features: string[];
   limitations: string[];
+  trustNotes: string[];
   cta: string;
 };
+
+export const billingTrustLinks = [
+  { label: "Privacy Policy", href: "/privacy" },
+  { label: "Terms of Service", href: "/terms" },
+  { label: "Cookie Policy", href: "/cookies" },
+  { label: "Security", href: "/security" },
+] as const;
+
+export const billingTrustNotes = [
+  "Cancel before renewal from the billing provider flow.",
+  "Trial and subscription terms are shown before checkout.",
+  "Meeting data handling is covered in Privacy and Security.",
+  "Exports and integrations remain user-controlled.",
+] as const;
 
 export const pricingPlans: PricingPlan[] = [
   {
@@ -23,6 +38,10 @@ export const pricingPlans: PricingPlan[] = [
       "Simple review mode",
     ],
     limitations: ["No Desktop App", "No local auto-recording", "No Advanced mode toggle"],
+    trustNotes: [
+      "No checkout required for Starter.",
+      "Web dashboard data handling is covered in Privacy.",
+    ],
     cta: "Open Web App",
   },
   {
@@ -40,6 +59,7 @@ export const pricingPlans: PricingPlan[] = [
       "Related-meeting memory and targeted regeneration",
     ],
     limitations: [],
+    trustNotes: [...billingTrustNotes],
     cta: "Download Desktop App",
   },
   {
@@ -56,6 +76,11 @@ export const pricingPlans: PricingPlan[] = [
       "Priority onboarding and support",
     ],
     limitations: [],
+    trustNotes: [
+      "Team rollout terms are confirmed before billing.",
+      "Retention, exports, and integration controls are documented.",
+      "Security review material is available before rollout.",
+    ],
     cta: "Contact Sales",
   },
 ];
@@ -79,7 +104,7 @@ export const pricingFeatureMatrix = [
 export const pricingFaqs = [
   {
     q: "Can I use NextStop for free?",
-    a: "Yes. The Starter plan gives you the full session launcher, local recording, and basic post-meeting AI at no cost. Upgrade when you need Advanced mode, workspace sync, or related-meeting memory.",
+    a: "Yes. The Starter plan gives you the web dashboard, manual upload, transcript generation, and basic post-meeting AI at no cost. Upgrade when you need the Desktop App, Advanced mode, workspace sync, or related-meeting memory.",
   },
   {
     q: "What does 'related-meeting memory' mean?",

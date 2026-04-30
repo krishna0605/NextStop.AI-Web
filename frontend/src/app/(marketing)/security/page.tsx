@@ -1,5 +1,5 @@
 import { Footer } from "@/components/Footer";
-import { CloudOff, FileText, Lock, Server, ShieldCheck } from "lucide-react";
+import { CloudOff, FileText, Lock, RefreshCcw, Server, ShieldCheck, Trash2 } from "lucide-react";
 
 const layers = [
   {
@@ -68,6 +68,29 @@ const commitments = [
   {
     icon: <FileText className="h-5 w-5" />,
     text: "Users can review, retry, and control every generated output.",
+  },
+];
+
+const dataHandling = [
+  {
+    icon: <Lock className="h-5 w-5" />,
+    title: "Encryption",
+    text: "Production traffic is served over HTTPS, provider credentials stay server-side, and source maps remain private release artifacts.",
+  },
+  {
+    icon: <Server className="h-5 w-5" />,
+    title: "Providers",
+    text: "Supabase, Razorpay, Sentry, OTLP, Google, Notion, Deepgram, and OpenAI are isolated behind server-owned route boundaries.",
+  },
+  {
+    icon: <RefreshCcw className="h-5 w-5" />,
+    title: "Retention",
+    text: "Raw audio is short-lived, temporary transcript access is policy-controlled, and durable cloud records keep structured outputs and metadata.",
+  },
+  {
+    icon: <Trash2 className="h-5 w-5" />,
+    title: "Deletion",
+    text: "Users can request account, meeting, transcript, and integration cleanup through support while self-serve controls continue to expand.",
   },
 ];
 
@@ -154,6 +177,40 @@ export default function SecurityPage() {
                         </div>
                       </div>
                     </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Commitments */}
+        <section className="border-t border-white/5 py-24">
+          <div className="container mx-auto px-4 md:px-6">
+            <div className="mx-auto max-w-4xl">
+              <div className="mb-10 text-center">
+                <h2 className="font-heading text-3xl font-bold text-white">
+                  Security and data handling
+                </h2>
+                <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-zinc-400">
+                  A compact view of what is protected, who processes it, how long sensitive
+                  assets remain available, and how users can request deletion.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {dataHandling.map((item) => (
+                  <div
+                    key={item.title}
+                    className="rounded-2xl border border-white/8 bg-zinc-950/60 p-6"
+                  >
+                    <div className="mb-4 flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-[var(--brand-highlight)]">
+                        {item.icon}
+                      </div>
+                      <h3 className="text-lg font-semibold text-white">{item.title}</h3>
+                    </div>
+                    <p className="text-sm leading-7 text-zinc-400">{item.text}</p>
                   </div>
                 ))}
               </div>

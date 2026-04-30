@@ -93,6 +93,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
+  productionBrowserSourceMaps: false,
   outputFileTracingRoot: path.join(process.cwd(), ".."),
   async headers() {
     return [

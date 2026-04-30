@@ -1,0 +1,127 @@
+name: Production Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Production web URL"
+        required: false
+        type: string
+      backend_health_url:
+        description: "Backend health endpoint URL"
+        required: false
+        type: string
+  schedule:
+    - cron: "23 5 * * *"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  BASE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.base_url || vars.PRODUCTION_BASE_URL }}
+  BACKEND_HEALTH_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.backend_health_url || vars.BACKEND_HEALTH_URL }}
+
+jobs:
+  production-canary:
+    if: ${{ (github.event_name == 'workflow_dispatch' && (inputs.base_url != '' || vars.PRODUCTION_BASE_URL != '')) || (github.event_name != 'workflow_dispatch' && vars.PRODUCTION_BASE_URL != '') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci --workspaces=false
+        working-directory: frontend
+
+      - name: Service-only readiness canary
+        working-directory: frontend
+        run: npm run test:readiness -- "${BASE_URL}" --service-only
+
+      - name: Capture readiness payload
+        if: always()
+        shell: bash
+        run: |
+          curl --silent --show-error --output readiness-canary.json --write-out "%{http_code}" "${BASE_URL}/api/health/readiness" > readiness-status.txt || true
+          echo "## Production readiness canary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Base URL: ${BASE_URL}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Readiness HTTP status: $(cat readiness-status.txt 2>/dev/null || echo unknown)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Backend health canary
+        if: ${{ env.BACKEND_HEALTH_URL != '' }}
+        shell: bash
+        run: |
+          curl --fail --silent --show-error "${BACKEND_HEALTH_URL}" > backend-health-canary.json
+          node <<'NODE'
+          const fs = require("fs");
+          const payload = JSON.parse(fs.readFileSync("backend-health-canary.json", "utf8"));
+          const failures = [];
+
+          if (payload.workerReady !== true) failures.push("workerReady is not true");
+          if (payload.directExecution !== true) failures.push("directExecution is not true");
+          if (payload.workerStale === true) failures.push("workerStale is true");
+          if (payload.cleanup?.lastCleanupError) failures.push("cleanup reported an error");
+
+          fs.appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            [
+              "",
+              "## Backend health canary",
+              "",
+              `- Worker ready: ${payload.workerReady}`,
+              `- Direct execution: ${payload.directExecution}`,
+              `- Worker stale: ${payload.workerStale}`,
+              `- Cleanup error: ${payload.cleanup?.lastCleanupError ? "yes" : "no"}`,
+              "",
+            ].join("\n")
+          );
+
+          if (failures.length > 0) {
+            throw new Error(`Backend canary failed: ${failures.join(", ")}`);
+          }
+          NODE
+
+      - name: Production security canary
+        shell: bash
+        run: |
+          npm run verify:production-security -- "${BASE_URL}" --backend-health-url="${BACKEND_HEALTH_URL}" --output=production-security-verification.json
+          node <<'NODE'
+          const fs = require("fs");
+          const payload = JSON.parse(fs.readFileSync("production-security-verification.json", "utf8"));
+          fs.appendFileSync(
+            process.env.GITHUB_STEP_SUMMARY,
+            [
+              "",
+              "## Production security canary",
+              "",
+              `- Security headers complete: ${payload.headers?.ok === true ? "yes" : "no"}`,
+              `- Public source maps exposed: ${payload.sourceMaps?.exposed?.length ?? 0}`,
+              `- Unexpected readiness blockers: ${payload.readiness?.unexpectedBlockers?.length ?? 0}`,
+              `- Backend health checked: ${payload.backendHealth?.skipped ? "no" : "yes"}`,
+              "",
+            ].join("\n")
+          );
+          NODE
+
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Public funnel canary
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ env.BASE_URL }}
+        run: npm run test:e2e -- tests/e2e/deployed-smoke.spec.ts
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: production-canary-artifacts
+          path: |
+            readiness-canary.json
+            readiness-status.txt
+            backend-health-canary.json
+            production-security-verification.json
+            frontend/playwright-report
+            frontend/test-results

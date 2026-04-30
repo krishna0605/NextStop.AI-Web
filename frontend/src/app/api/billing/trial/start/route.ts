@@ -2,9 +2,9 @@ import crypto from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import { sanitizeNextPath } from "@/lib/billing";
 import { internalServerErrorResponse } from "@/lib/http";
 import { resolveAccessContext } from "@/lib/billing-server";
+import { parseSafeNextPath } from "@/lib/route-validation";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient } from "@/lib/supabase-server";
 
@@ -13,7 +13,7 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as { nextPath?: string };
-    const redirectTo = sanitizeNextPath(body.nextPath, "/dashboard");
+    const redirectTo = parseSafeNextPath(body.nextPath, "/dashboard");
     const supabase = await createClient();
     const {
       data: { user },

@@ -2,10 +2,11 @@ import crypto from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import { SELF_SERVE_PLAN_CODE, sanitizeNextPath } from "@/lib/billing";
+import { SELF_SERVE_PLAN_CODE } from "@/lib/billing";
 import { internalServerErrorResponse } from "@/lib/http";
 import { resolveAccessContext } from "@/lib/billing-server";
 import { razorpayRequest, toIsoFromUnixSeconds } from "@/lib/razorpay";
+import { parsePlanCode, parseSafeNextPath } from "@/lib/route-validation";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { createClient } from "@/lib/supabase-server";
 
@@ -28,10 +29,11 @@ export async function POST(request: Request) {
       plan_code?: string;
       nextPath?: string;
     };
-    const nextPath = sanitizeNextPath(body.nextPath, "/dashboard");
+    const nextPath = parseSafeNextPath(body.nextPath, "/dashboard");
+    const planCode = parsePlanCode(body.plan_code);
 
-    if (body.plan_code !== SELF_SERVE_PLAN_CODE) {
-      return NextResponse.json({ error: "Unsupported plan selection." }, { status: 400 });
+    if (!planCode.ok || planCode.value !== SELF_SERVE_PLAN_CODE) {
+      return NextResponse.json({ error: planCode.error }, { status: 400 });
     }
 
     const supabase = await createClient();

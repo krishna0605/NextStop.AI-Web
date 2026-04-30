@@ -5,6 +5,7 @@ export {
   smokeAiStatusDegraded,
   smokeDegradedFindings,
   smokeDegradedMeeting,
+  smokeDashboardHomeData,
   smokeLibraryPageData,
   smokeGoogleReconnectRecord,
   smokeMeetingArtifacts,

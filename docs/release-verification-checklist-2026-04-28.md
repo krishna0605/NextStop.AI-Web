@@ -27,6 +27,7 @@ Set these service variables before production certification:
 - `OTEL_EXPORTER_OTLP_ENDPOINT=<collector-url>/v1/traces`
 - `OTEL_EXPORTER_OTLP_HEADERS=<provider-auth-header-if-required>`
 - `AI_CORE_SHARED_SECRET=<same-value-as-github-secret>`
+- `RAZORPAY_WEBHOOK_MAX_EVENT_AGE_SECONDS=600` unless the default 10-minute replay window is intentionally kept.
 
 Redeploy or restart the backend after changing variables.
 
@@ -62,6 +63,11 @@ sequenceDiagram
 - `launch-certification-payload` artifact.
 - Sentry transaction/event screenshot or link.
 - OTLP trace/span screenshot or link.
+- Provider security evidence checklist artifact.
+- Production canary run URL.
+- `production-security-verification.json` artifact from the Production Canary workflow.
+- Source-map exposure verification note.
+- Secret rotation verification note for `AI_CORE_SHARED_SECRET`.
 - Legal approval or legal risk acceptance reference.
 
 ## Passing Criteria
@@ -71,3 +77,6 @@ sequenceDiagram
 - Post Deploy Verify `readiness-check`, `backend-health`, `preview-smoke`, and `launch-summary` pass.
 - Web readiness returns HTTP 200 with `launchDecision: "ready"`.
 - `productionEvidenceChecks` marks Hosted verification, Production observability, and Launch certification as `pass`.
+- Provider WAF/rate-limit evidence has an owner, proof link, or explicit accepted risk.
+- Production canary has passed at least once after the release deploy.
+- Production security canary shows required headers present, no public source maps exposed, no unexpected readiness blockers, and healthy backend worker state when `BACKEND_HEALTH_URL` is configured.

@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { AiQueueStatusCard } from "@/components/workspace/AiQueueStatusCard";
 import { useWorkspaceCaptureController } from "@/components/workspace/WorkspaceCaptureIsland";
 import type { AccessState, PlanCode } from "@/lib/billing";
 import { PLAN_DETAILS } from "@/lib/billing";
@@ -224,6 +225,8 @@ export function WorkspaceOverview({
           </div>
         </motion.section>
       </div>
+
+      <AiQueueStatusCard overview={overview} />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <motion.section

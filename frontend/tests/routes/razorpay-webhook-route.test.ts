@@ -113,6 +113,7 @@ const paymentOnlyPayload = {
 describe("POST /api/razorpay/webhook", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
   });
 
   it("rejects requests missing the Razorpay signature", async () => {
@@ -298,6 +299,54 @@ describe("POST /api/razorpay/webhook", () => {
     expect(await response.json()).toEqual({ ok: true });
     expect(mocks.billingEvents.upsert).toHaveBeenCalled();
     expect(mocks.subscriptions.upsert).toHaveBeenCalled();
+  });
+
+  it("rejects signed webhook events outside the replay window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-29T12:00:00.000Z"));
+    vi.mocked(verifyWebhookSignature).mockReturnValue(true);
+
+    const response = await POST(
+      jsonRequest(
+        {
+          ...activeSubscriptionPayload,
+          created_at: Math.floor(new Date("2026-04-29T11:45:00.000Z").getTime() / 1000),
+        },
+        {
+          "x-razorpay-signature": "valid-signature",
+          "x-razorpay-event-id": "evt_stale",
+        }
+      )
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Stale webhook event." });
+    expect(createAdminClient).not.toHaveBeenCalled();
+  });
+
+  it("accepts signed webhook events inside the replay window", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-29T12:00:00.000Z"));
+    vi.mocked(verifyWebhookSignature).mockReturnValue(true);
+    const mocks = createAdminMock();
+    vi.mocked(createAdminClient).mockReturnValue(mocks.admin as never);
+
+    const response = await POST(
+      jsonRequest(
+        {
+          ...activeSubscriptionPayload,
+          created_at: Math.floor(new Date("2026-04-29T11:55:30.000Z").getTime() / 1000),
+        },
+        {
+          "x-razorpay-signature": "valid-signature",
+          "x-razorpay-event-id": "evt_fresh",
+        }
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(mocks.billingEvents.upsert).toHaveBeenCalled();
   });
 
   it("returns a safe server error for malformed JSON after signature verification", async () => {

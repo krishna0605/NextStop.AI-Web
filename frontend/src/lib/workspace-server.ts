@@ -731,14 +731,27 @@ export async function loadDashboardHomeData(
   return measureWorkspaceCall("loadDashboardHomeData", async () => {
     const admin = getAdminClient();
     const queryClient = admin ?? supabase;
-    const [google, notion] = await Promise.all([
+    const [google, notion, latestAiJob, queuedCount, runningCount, failedCount, cancelRequestedCount] =
+      await Promise.all([
       queryMaybeSingle<IntegrationRecord>(queryClient, "integrations_google", userId),
       queryMaybeSingle<IntegrationRecord>(queryClient, "integrations_notion", userId),
+      queryLatestAiJob(queryClient, userId),
+      queryAiJobStatusCount(queryClient, userId, "queued"),
+      queryAiJobStatusCount(queryClient, userId, "running"),
+      queryAiJobStatusCount(queryClient, userId, "failed"),
+      queryAiJobStatusCount(queryClient, userId, "cancel_requested"),
     ]);
 
     return {
       google,
       notion,
+      latestAiJob,
+      aiQueueStatus: {
+        queuedCount,
+        runningCount,
+        failedCount,
+        cancelRequestedCount,
+      },
       providerStatus: getWorkspaceProviderStatus(),
     };
   });

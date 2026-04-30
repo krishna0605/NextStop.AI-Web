@@ -9,6 +9,9 @@ This directory intentionally tracks selected production-readiness evidence while
 - Abuse-control inventories and provider evidence checklists.
 - Release verification notes and post-deploy evidence summaries.
 - Legal review checklists that track human approval status.
+- API route inventory, browser-storage inventory, dashboard QA checklists, and operations/security hardening runbooks.
+- Security certification evidence plans that summarize provider WAF/rate-limit, observability, source-map, canary, and secret-rotation proof.
+- Final remediation trackers that distinguish repo-closed work from GitHub/provider/legal verification that must be completed before launch signoff.
 
 ## Local Or Sensitive Document Classes
 
@@ -39,5 +42,7 @@ Post-deploy evidence should be reproducible from GitHub Actions artifacts:
 - launch certification prerequisites
 - launch certification payload
 - deployed smoke/Playwright artifacts on failure
+- provider security evidence checklist
+- production canary artifacts
 
 The tracked docs should summarize those artifacts and identify the run that produced them.

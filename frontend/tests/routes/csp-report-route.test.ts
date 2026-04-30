@@ -1,6 +1,16 @@
 import { POST } from "@/app/api/security/csp-report/route";
+import * as Sentry from "@sentry/nextjs";
+
+vi.mock("@sentry/nextjs", () => ({
+  captureMessage: vi.fn(),
+}));
 
 describe("POST /api/security/csp-report", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+  });
+
   it("accepts CSP report-only payloads without echoing details to the client", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -31,6 +41,18 @@ describe("POST /api/security/csp-report", () => {
         documentUri: "https://nextstop.ai/dashboard",
         blockedUri: "https://cdn.example.com/script.js",
         effectiveDirective: "script-src",
+      })
+    );
+    expect(Sentry.captureMessage).toHaveBeenCalledWith(
+      "CSP report-only violation",
+      expect.objectContaining({
+        level: "warning",
+        extra: {
+          cspReport: expect.objectContaining({
+            documentUri: "https://nextstop.ai/dashboard",
+            blockedUri: "https://cdn.example.com/script.js",
+          }),
+        },
       })
     );
   });

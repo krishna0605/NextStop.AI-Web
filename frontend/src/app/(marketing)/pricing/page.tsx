@@ -9,6 +9,7 @@ import Link from "next/link";
 import React, { useEffect, useState } from "react";
 
 import { createClient } from "@/lib/supabase-browser";
+import { BillingTrust } from "@/components/BillingTrust";
 import { Footer } from "@/components/Footer";
 import { RollingPrice } from "@/components/Pricing";
 import { pricingFaqs, pricingFeatureMatrix, pricingPlans } from "@/lib/pricing-plans";
@@ -221,6 +222,10 @@ export default function PricingPage() {
                           >
                             {plan.cta}
                           </Button>
+                        </div>
+
+                        <div className="mt-5">
+                          <BillingTrust notes={plan.trustNotes} compact />
                         </div>
                       </div>
                     </div>

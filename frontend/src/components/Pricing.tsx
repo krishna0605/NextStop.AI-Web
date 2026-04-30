@@ -7,6 +7,7 @@ import type { User } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import React, { useEffect, useState } from "react";
 
+import { BillingTrust } from "@/components/BillingTrust";
 import { pricingPlans } from "@/lib/pricing-plans";
 import { createClient } from "@/lib/supabase-browser";
 
@@ -182,6 +183,10 @@ export function Pricing() {
                     >
                       {plan.cta}
                     </Button>
+                  </div>
+
+                  <div className="mt-5">
+                    <BillingTrust notes={plan.trustNotes} compact />
                   </div>
                 </div>
               </div>

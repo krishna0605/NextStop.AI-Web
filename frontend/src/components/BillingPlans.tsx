@@ -7,7 +7,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { BillingTrust } from "@/components/BillingTrust";
 import { resolvePublicApiUrl } from "@/lib/public-backend";
+import { pricingPlans } from "@/lib/pricing-plans";
 import {
   type AccessState,
   type PlanCode,
@@ -88,6 +90,8 @@ const planCards = [
     ],
   },
 ];
+
+const trustNotesByPlan = new Map(pricingPlans.map((plan) => [plan.name, plan.trustNotes]));
 
 function loadRazorpayCheckout() {
   return new Promise<boolean>((resolve) => {
@@ -413,6 +417,17 @@ export function BillingPlans({
                       Contact sales
                     </Button>
                   ) : null}
+
+                  <div className="mt-5">
+                    <BillingTrust
+                      notes={
+                        trustNotesByPlan.get(
+                          isTrialCard ? "Pro Workflow" : isProCard ? "Pro Workflow" : "Team"
+                        ) ?? undefined
+                      }
+                      compact
+                    />
+                  </div>
                 </div>
               </motion.div>
             );

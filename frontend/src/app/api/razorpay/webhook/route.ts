@@ -20,6 +20,40 @@ interface RazorpayEntityPayload {
   notes?: Record<string, string>;
 }
 
+const DEFAULT_WEBHOOK_REPLAY_WINDOW_SECONDS = 10 * 60;
+
+function getWebhookReplayWindowSeconds() {
+  const value = Number(process.env.RAZORPAY_WEBHOOK_MAX_EVENT_AGE_SECONDS);
+
+  if (!Number.isFinite(value) || value <= 0) {
+    return DEFAULT_WEBHOOK_REPLAY_WINDOW_SECONDS;
+  }
+
+  return value;
+}
+
+function getEventCreatedAt(payload: Record<string, unknown>) {
+  const value = payload.created_at;
+
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+
+  return value;
+}
+
+function isStaleWebhookEvent(payload: Record<string, unknown>) {
+  const createdAt = getEventCreatedAt(payload);
+
+  if (!createdAt) {
+    return false;
+  }
+
+  const eventAgeSeconds = Date.now() / 1000 - createdAt;
+
+  return eventAgeSeconds > getWebhookReplayWindowSeconds();
+}
+
 function mapWebhookStatusToAccessState(
   status: string,
   currentPeriodEnd: string | null
@@ -77,6 +111,11 @@ export async function POST(request: Request) {
     }
 
     const payload = JSON.parse(rawBody) as Record<string, unknown>;
+
+    if (isStaleWebhookEvent(payload)) {
+      return NextResponse.json({ error: "Stale webhook event." }, { status: 400 });
+    }
+
     const eventType = String(payload.event ?? "unknown");
     const eventId =
       request.headers.get("x-razorpay-event-id") ??

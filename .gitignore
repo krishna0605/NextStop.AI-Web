@@ -78,6 +78,12 @@ docs/*
 !docs/abuse-control-inventory*.md
 !docs/release-verification*.md
 !docs/legal-review-checklist*.md
+!docs/operations-security-hardening*.md
+!docs/approved-browser-storage*.md
+!docs/dashboard-qa-checklist*.md
+!docs/api-route-inventory*.md
+!docs/security-certification-evidence*.md
+!docs/final-remediation-tracker*.md
 !docs/README.md
 
 # local backend helper state
